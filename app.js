@@ -91,6 +91,23 @@
       </div></a>`;
   }
 
+  // Compact row for the Today screen: company, contact, highlighted tap-to-call phone, missing-info flag.
+  function todayRow(l, due) {
+    const phone = usable(l.owner_phone) ? l.owner_phone : l.business_phone;
+    const missing = l.lead_status === "Missing Info"
+      ? (usable(l.missing) ? l.missing.replace(/^needs?\s*/i, "").split(/[;.]/)[0].slice(0, 60) : "info") : "";
+    const late = due && l.follow_up_date < today();
+    return `<div class="trow" data-href="#/lead/${l.id}">
+      <div class="trow-main">
+        <a class="trow-name" href="#/lead/${l.id}">${esc(l.business_name)}</a>
+        <span class="trow-contact">${usable(l.owner_name) ? esc(l.owner_name.split(" (")[0]) : '<span class="no-contact">No contact name</span>'}</span>
+        ${missing ? `<span class="trow-missing">Missing: ${esc(missing)}</span>` : ""}
+        ${due ? `<span class="due ${late ? "late" : ""}">${late ? "Overdue · " : "Due "}${fmtDate(l.follow_up_date)}</span>` : ""}
+      </div>
+      ${usable(phone) ? `<a class="trow-phone" href="tel:${esc(tel(phone))}"><svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1z"/></svg>${esc(phone)}</a>` : '<span class="trow-nophone">No phone</span>'}
+    </div>`;
+  }
+
   async function todayView() {
     const { data: leads, error } = await sb.from("leads").select("*").order("follow_up_date", { ascending: true, nullsFirst: false });
     if (error) return fail(error);
@@ -105,9 +122,10 @@
           .map(([k, v]) => `<div class="stat"><span>${k}</span><b>${v}</b></div>`).join("")}
       </section>
       <h2 class="h">Due today or overdue <span class="muted">(${due.length})</span></h2>
-      <div class="list">${due.map(leadRow).join("") || `<p class="muted pad">Nothing due. Nice.</p>`}</div>
+      <div class="tlist">${due.map((l) => todayRow(l, true)).join("") || `<p class="muted pad">Nothing due. Nice.</p>`}</div>
       <h2 class="h">New, not called yet <span class="muted">(${fresh.length})</span></h2>
-      <div class="list">${fresh.slice(0, 25).map(leadRow).join("") || `<p class="muted pad">No new leads. <a href="#/import">Import Abby's list</a> or <a href="#/new">add one</a>.</p>`}</div>`;
+      <div class="tlist">${fresh.slice(0, 50).map((l) => todayRow(l)).join("") || `<p class="muted pad">No new leads. <a href="#/import">Import Abby's list</a> or <a href="#/new">add one</a>.</p>`}</div>`;
+    app.querySelectorAll(".trow").forEach((r) => r.addEventListener("click", (e) => { if (!e.target.closest("a")) location.hash = r.dataset.href; }));
     if (window.AbbyRunner) AbbyRunner.start(leads);
   }
 
