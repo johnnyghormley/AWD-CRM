@@ -125,24 +125,24 @@ window.AbbyRunner = (() => {
       // glow
       const pulse = 0.5 + 0.5 * Math.sin(t * 0.002);
       const g = cx.createRadialGradient(ox, oy, 0, ox, oy, R * 1.25);
-      g.addColorStop(0, `rgba(34,211,238,${0.18 + 0.12 * pulse * intensity})`); g.addColorStop(1, "rgba(34,211,238,0)");
+      g.addColorStop(0, `rgba(250,204,21,${0.14 + 0.1 * pulse * intensity})`); g.addColorStop(1, "rgba(250,204,21,0)");
       cx.fillStyle = g; cx.beginPath(); cx.arc(ox, oy, R * 1.25, 0, 7); cx.fill();
       // links
       cx.lineWidth = 0.6;
       for (const [i, j] of links) {
         const z = (P[i][2] + P[j][2]) / 2;
-        cx.strokeStyle = `rgba(103,232,249,${0.05 + 0.25 * ((z + 1) / 2)})`;
+        cx.strokeStyle = `rgba(209,213,219,${0.04 + 0.22 * ((z + 1) / 2)})`;
         cx.beginPath(); cx.moveTo(P[i][0], P[i][1]); cx.lineTo(P[j][0], P[j][1]); cx.stroke();
       }
       // nodes
       P.forEach(([x, y, z], i) => {
         const hot = i % 17 === Math.floor(t / 400) % 17;
-        cx.fillStyle = hot ? "rgba(250,204,21,.95)" : `rgba(165,243,252,${0.25 + 0.75 * ((z + 1) / 2)})`;
+        cx.fillStyle = hot ? "rgba(250,204,21,.95)" : `rgba(243,244,246,${0.25 + 0.75 * ((z + 1) / 2)})`;
         cx.beginPath(); cx.arc(x, y, hot ? 2.4 : 1 + (z + 1) * 0.6, 0, 7); cx.fill();
       });
       // orbit rings
       cx.lineWidth = 1;
-      [[1.32, 0.28, 0.0006, "rgba(34,211,238,.45)"], [1.48, 0.62, -0.0004, "rgba(250,204,21,.35)"]].forEach(([k, sq, sp, col]) => {
+      [[1.32, 0.28, 0.0006, "rgba(250,204,21,.55)"], [1.48, 0.62, -0.0004, "rgba(156,163,175,.35)"]].forEach(([k, sq, sp, col]) => {
         cx.save(); cx.translate(ox, oy); cx.rotate(t * sp); cx.scale(1, sq);
         cx.strokeStyle = col; cx.setLineDash([R * 0.5, R * 0.18, 3, R * 0.18]);
         cx.beginPath(); cx.arc(0, 0, R * k, 0, 7); cx.stroke(); cx.restore();
@@ -153,10 +153,10 @@ window.AbbyRunner = (() => {
     function drawWave(t) {
       wx.clearRect(0, 0, ww, wh);
       const mid = wh / 2;
-      wx.strokeStyle = "rgba(34,211,238,.12)"; wx.lineWidth = 1;
+      wx.strokeStyle = "rgba(255,255,255,.06)"; wx.lineWidth = 1;
       for (let x = 0; x < ww; x += 24) { wx.beginPath(); wx.moveTo(x, 0); wx.lineTo(x, wh); wx.stroke(); }
       wx.beginPath(); wx.moveTo(0, mid); wx.lineTo(ww, mid); wx.stroke();
-      [[1, "rgba(103,232,249,.9)", 1.4], [0.55, "rgba(250,204,21,.6)", 1]].forEach(([amp, col, lw]) => {
+      [[1, "rgba(250,204,21,.95)", 1.6], [0.55, "rgba(209,213,219,.5)", 1]].forEach(([amp, col, lw]) => {
         wx.strokeStyle = col; wx.lineWidth = lw; wx.beginPath();
         for (let x = 0; x <= ww; x += 2) {
           const p = x / ww;
