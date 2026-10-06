@@ -99,6 +99,7 @@
     const fresh = leads.filter((l) => l.call_status === "New");
     const count = (s) => leads.filter((l) => l.call_status === s).length;
     app.innerHTML = `
+      ${window.AbbyRunner ? AbbyRunner.html(leads) : ""}
       <section class="stats">
         ${[["Total leads", leads.length], ["New", count("New")], ["Design sent", count("Design Sent")], ["Follow up", count("Follow Up") + count("Callback")], ["Won", count("Won")]]
           .map(([k, v]) => `<div class="stat"><span>${k}</span><b>${v}</b></div>`).join("")}
@@ -107,6 +108,7 @@
       <div class="list">${due.map(leadRow).join("") || `<p class="muted pad">Nothing due. Nice.</p>`}</div>
       <h2 class="h">New, not called yet <span class="muted">(${fresh.length})</span></h2>
       <div class="list">${fresh.slice(0, 25).map(leadRow).join("") || `<p class="muted pad">No new leads. <a href="#/import">Import Abby's list</a> or <a href="#/new">add one</a>.</p>`}</div>`;
+    if (window.AbbyRunner) AbbyRunner.start(leads);
   }
 
   async function leadsView() {

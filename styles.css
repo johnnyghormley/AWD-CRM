@@ -72,3 +72,70 @@ details[open] summary { margin-bottom: 12px; }
   .row { flex-direction: column; } .row-side { justify-content: flex-start; text-align: left; }
   .actions .btn { width: 100%; justify-content: center; }
 }
+
+/* ---------- Abby running scene ---------- */
+.abby-scene { --spd: 1; position: relative; height: 210px; border-radius: var(--r); overflow: hidden; background: linear-gradient(#E0F2FE, #F0F9FF 70%); border: 1px solid var(--line); cursor: pointer; user-select: none; }
+.sky .sun { position: absolute; right: 9%; top: 14px; width: 34px; height: 34px; border-radius: 50%; background: var(--y); box-shadow: 0 0 0 8px rgba(250,204,21,.25); }
+.cloud { position: absolute; height: 14px; width: 60px; background: #fff; border-radius: 20px; opacity: .9; animation: drift calc(28s / var(--spd)) linear infinite; }
+.cloud::before { content: ""; position: absolute; left: 12px; top: -9px; width: 26px; height: 22px; background: #fff; border-radius: 50%; }
+.cloud.c1 { top: 22px; left: 100%; } .cloud.c2 { top: 48px; left: 100%; animation-delay: -14s; transform: scale(.7); }
+@keyframes drift { to { left: -80px; } }
+.houses { position: absolute; left: 0; right: 0; bottom: 34px; height: 56px; overflow: hidden; }
+.houses-track { display: flex; gap: 46px; width: max-content; animation: scroll calc(16s / var(--spd)) linear infinite; padding-left: 20px; }
+.house svg { width: 60px; height: 50px; display: block; }
+@keyframes scroll { to { transform: translateX(-50%); } }
+.road { position: absolute; left: 0; right: 0; bottom: 0; height: 36px; background: #374151; }
+.road::after { content: ""; position: absolute; left: 0; right: -80px; top: 16px; height: 4px; background: repeating-linear-gradient(90deg, var(--y) 0 30px, transparent 30px 60px); animation: dash calc(.6s / var(--spd)) linear infinite; }
+@keyframes dash { to { transform: translateX(-60px); } }
+
+.abby-wrap { position: absolute; left: 14%; bottom: 12px; width: 112px; outline: none; }
+.abby-wrap:focus-visible .abby { filter: drop-shadow(0 0 0 3px var(--y)); }
+.abby { width: 112px; height: 158px; display: block; overflow: visible; }
+.abby .abby-body { animation: bob calc(.36s / var(--spd)) ease-in-out infinite alternate; }
+.abby .leg { transform-box: view-box; transform-origin: 60px 100px; }
+.abby .arm { transform-box: view-box; transform-origin: 60px 68px; }
+.abby .ponytail { transform-box: view-box; transform-origin: 46px 36px; animation: pony calc(.36s / var(--spd)) ease-in-out infinite alternate; }
+.abby .leg-front, .abby .arm-back { animation: swingA calc(.36s / var(--spd)) ease-in-out infinite alternate; }
+.abby .leg-back, .abby .arm-front { animation: swingB calc(.36s / var(--spd)) ease-in-out infinite alternate; }
+@keyframes swingA { from { transform: rotate(32deg); } to { transform: rotate(-32deg); } }
+@keyframes swingB { from { transform: rotate(-32deg); } to { transform: rotate(32deg); } }
+@keyframes bob { from { transform: translateY(0); } to { transform: translateY(-5px); } }
+@keyframes pony { from { transform: rotate(-12deg); } to { transform: rotate(10deg); } }
+
+.bubble { position: absolute; left: 84px; top: -4px; white-space: nowrap; background: #fff; border: 2px solid var(--c); border-radius: 12px; padding: 4px 10px; font-size: 13px; font-weight: 600; }
+.bubble::after { content: ""; position: absolute; left: 10px; bottom: -8px; border: 7px solid transparent; border-top-color: var(--c); border-bottom: 0; }
+.bubble.pop { animation: pop .35s ease-out; }
+@keyframes pop { from { transform: scale(.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+.cards { position: absolute; inset: 0; pointer-events: none; }
+.lead-card { position: absolute; left: calc(14% + 60px); bottom: 70px; width: 150px; background: #fff; border: 2px solid var(--c); border-left: 6px solid var(--y); border-radius: 8px; padding: 5px 8px; font-size: 12px; line-height: 1.25; animation: fly 2.4s cubic-bezier(.3,.7,.4,1) forwards; }
+.lead-card b, .lead-card small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lead-card small { color: var(--muted); }
+@keyframes fly {
+  0% { transform: translate(0, 0) scale(.4) rotate(-20deg); opacity: 0; }
+  15% { opacity: 1; }
+  50% { transform: translate(calc(35vw - 60px), -70px) scale(1) rotate(6deg); }
+  85% { opacity: 1; }
+  100% { transform: translate(calc(60vw - 120px), 10px) scale(.5) rotate(0); opacity: 0; }
+}
+@media (min-width: 1012px) { @keyframes fly {
+  0% { transform: translate(0, 0) scale(.4) rotate(-20deg); opacity: 0; } 15% { opacity: 1; }
+  50% { transform: translate(300px, -70px) scale(1) rotate(6deg); } 85% { opacity: 1; }
+  100% { transform: translate(560px, 10px) scale(.5) rotate(0); opacity: 0; } } }
+
+.pile { position: absolute; right: 5%; bottom: 44px; width: 86px; height: 70px; display: grid; place-items: center; }
+.pile span { position: absolute; width: 70px; height: 44px; background: #fff; border: 2px solid var(--c); border-left: 6px solid var(--y); border-radius: 7px; }
+.pile span:nth-child(1) { transform: rotate(-8deg) translateY(6px); } .pile span:nth-child(2) { transform: rotate(5deg) translateY(2px); } .pile span:nth-child(3) { transform: rotate(-2deg) translateY(-3px); }
+.pile b { position: relative; font-family: Montserrat, sans-serif; font-size: 22px; margin-top: -10px; }
+.pile small { position: relative; margin-top: -26px; font-size: 11px; color: var(--muted); }
+.abby-stats { position: absolute; left: 12px; top: 10px; background: rgba(255,255,255,.85); border-radius: 999px; padding: 3px 12px; font-size: 13px; }
+.abby-scene.sprint { --spd: 2.6; }
+
+@media (max-width: 600px) {
+  .abby-wrap { left: 4%; } .lead-card { left: calc(4% + 50px); width: 120px; }
+  .bubble { font-size: 12px; width: max-content; max-width: 190px; white-space: normal; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .abby-scene * { animation-duration: 0s !important; animation-iteration-count: 1 !important; }
+  .lead-card { animation: none; opacity: 1; left: auto; right: 5%; bottom: 120px; }
+}
