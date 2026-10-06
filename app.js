@@ -207,7 +207,7 @@
       sb.from("activities").select("*").eq("lead_id", id).order("created_at", { ascending: false })
     ]);
     if (error) return fail(error);
-    const phones = [[l.owner_phone, `Call ${l.owner_name || "owner"}`], [l.business_phone, "Call business"]].filter(([p]) => usable(p));
+    const phones = [[l.owner_phone, `Call ${usable(l.owner_name) ? l.owner_name.split(" (")[0] : "owner"}`], [l.business_phone, "Call business"]].filter(([p]) => usable(p));
     app.innerHTML = `
       <section class="card pad">
         <div class="head">
