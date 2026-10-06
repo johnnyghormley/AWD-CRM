@@ -1,113 +1,179 @@
-// Abby, AWD's lead-finding AI, as a running hologram in a HUD scene on the Today screen.
-// Just for fun. Uses real lead names when there are any.
+// Abby system panel for the Today screen: a rotating neural core, a signal trace,
+// a system log built from real CRM data, and pipeline metrics.
 window.AbbyRunner = (() => {
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  const F = 'fill="rgba(34,211,238,.16)" stroke="#67E8F9" stroke-width="2"';
+  const DAY = 864e5;
+  const ts = (d) => new Date(d).toLocaleTimeString("en-US", { hour12: false });
+  const stamp = (d) => {
+    const t = new Date(d), now = new Date();
+    return t.toDateString() === now.toDateString() ? ts(t) : t.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit" }) + " " + ts(t).slice(0, 5);
+  };
 
-  const ABBY_SVG = `
-  <svg class="abby" viewBox="0 0 120 170" aria-hidden="true">
-    <g class="abby-body">
-      <g class="leg leg-back"><rect x="53" y="98" width="11" height="40" rx="5" ${F} opacity=".55"/><rect x="49" y="134" width="20" height="8" rx="4" fill="#FACC15" opacity=".55"/></g>
-      <g class="arm arm-back"><rect x="54" y="66" width="9" height="32" rx="4.5" ${F} opacity=".55"/></g>
-      <g class="ponytail"><path d="M44 30 C30 30 24 44 28 56 C34 48 40 44 46 42 Z" ${F}/></g>
-      <rect x="44" y="60" width="32" height="44" rx="10" ${F}/>
-      <path d="M52 76 L60 92 L68 76 M55 86 H65" fill="none" stroke="#FACC15" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-      <path d="M48 66 H72 M48 98 H72" stroke="#67E8F9" stroke-width="1" opacity=".5"/>
-      <circle cx="60" cy="38" r="17" ${F}/>
-      <path d="M43 36 C43 20 77 18 77 36 C70 30 60 27 50 30 C47 31 45 33 43 36 Z" fill="rgba(103,232,249,.35)"/>
-      <rect class="visor" x="54" y="34" width="22" height="6" rx="3" fill="#FACC15"/>
-      <path d="M62 47 Q67 50 72 46" fill="none" stroke="#67E8F9" stroke-width="2" stroke-linecap="round"/>
-      <g class="leg leg-front"><rect x="56" y="98" width="11" height="40" rx="5" ${F}/><rect x="52" y="134" width="20" height="8" rx="4" fill="#FACC15"/></g>
-      <g class="arm arm-front"><rect x="57" y="66" width="9" height="32" rx="4.5" ${F}/>
-        <g class="pad"><rect x="54" y="96" width="18" height="12" rx="2" fill="rgba(250,204,21,.25)" stroke="#FACC15" stroke-width="1.5"/><path d="M57 100 H69 M57 104 H65" stroke="#FACC15" stroke-width="1.2"/></g>
-      </g>
-    </g>
-  </svg>`;
-
-  const RING = `
-  <svg class="ring" viewBox="0 0 200 200" aria-hidden="true">
-    <circle cx="100" cy="100" r="92" fill="none" stroke="#22D3EE" stroke-width="1" opacity=".35"/>
-    <circle class="spin" cx="100" cy="100" r="84" fill="none" stroke="#22D3EE" stroke-width="3" stroke-dasharray="40 18 6 18" opacity=".8"/>
-    <circle class="spin-r" cx="100" cy="100" r="74" fill="none" stroke="#FACC15" stroke-width="2" stroke-dasharray="90 380" opacity=".9"/>
-    <path d="M100 2 V14 M100 186 V198 M2 100 H14 M186 100 H198" stroke="#67E8F9" stroke-width="2"/>
-  </svg>`;
-
-  const building = (w, h) => `<svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}"><rect x="1" y="1" width="${w - 2}" height="${h - 1}" fill="rgba(34,211,238,.05)" stroke="rgba(103,232,249,.45)"/>${Array.from({ length: Math.floor((h - 10) / 12) }, (_, r) => Array.from({ length: Math.floor((w - 8) / 10) }, (_, c) => `<rect x="${6 + c * 10}" y="${8 + r * 12}" width="4" height="5" fill="${(r * 7 + c * 3) % 5 ? "rgba(103,232,249,.25)" : "rgba(250,204,21,.7)"}"/>`).join("")).join("")}</svg>`;
+  function stats(leads) {
+    const now = Date.now();
+    const by = (s) => leads.filter((l) => l.call_status === s).length;
+    const today = new Date().toLocaleDateString("en-CA");
+    return {
+      total: leads.length,
+      day: leads.filter((l) => now - new Date(l.created_at) < DAY).length,
+      week: leads.filter((l) => now - new Date(l.created_at) < 7 * DAY).length,
+      qualified: leads.filter((l) => l.lead_status === "Qualified").length,
+      missing: leads.filter((l) => l.lead_status === "Missing Info").length,
+      fresh: by("New"), design: by("Design Sent"), won: by("Won"),
+      due: leads.filter((l) => l.follow_up_date && l.follow_up_date <= today && !["Won", "Not Interested", "Do Not Call"].includes(l.call_status)).length,
+      active: leads.some((l) => now - new Date(l.created_at) < DAY),
+    };
+  }
 
   function html(leads) {
-    const now = Date.now(), day = 864e5;
-    const todayCount = leads.filter((l) => now - new Date(l.created_at) < day).length;
-    const weekCount = leads.filter((l) => now - new Date(l.created_at) < 7 * day).length;
-    const sizes = [[34, 60], [26, 38], [44, 74], [30, 50], [22, 30], [40, 64], [28, 44], [36, 56]];
-    const row = sizes.map(([w, h]) => `<span class="bldg">${building(w, h)}</span>`).join("");
+    const s = stats(leads);
+    const pct = s.total ? Math.round((s.qualified / s.total) * 100) : 0;
+    const bar = (label, n) => `<div class="m-bar"><span>${label}</span><i><em style="width:${s.total ? Math.max(2, (n / s.total) * 100) : 0}%"></em></i><b>${n}</b></div>`;
     return `
-    <section class="abby-scene" id="abby-scene">
-      <div class="hud-grid"></div>
-      <div class="city"><div class="city-track">${row}${row}${row}${row}</div></div>
-      <div class="floor"></div>
-      <div class="scan"></div>
-      <div class="hud-top">
-        <span class="dot"></span><b>A.B.B.Y</b><span class="sep">//</span>LEAD ENGINE <span class="ok">ONLINE</span>
-        <span class="hud-stats">TODAY <b>${todayCount}</b> · WEEK <b>${weekCount}</b></span>
+    <section class="ai-panel" id="abby-scene">
+      <header class="ai-head">
+        <span class="ai-dot ${s.active ? "on" : ""}"></span>
+        <b>ABBY</b><span class="ai-sub">LEAD INTELLIGENCE</span>
+        <span class="ai-state">${s.active ? "ACTIVE" : "STANDBY"}</span>
+        <span class="ai-clock" id="ai-clock"></span>
+      </header>
+      <div class="ai-body">
+        <div class="ai-core"><canvas id="ai-core" aria-hidden="true"></canvas><div class="ai-core-label">CORE<br><b>${s.total}</b><small>RECORDS</small></div></div>
+        <div class="ai-mid">
+          <canvas id="ai-wave" class="ai-wave" aria-hidden="true"></canvas>
+          <div class="ai-log" id="ai-log" aria-live="off"></div>
+        </div>
+        <div class="ai-metrics">
+          <div class="m-row"><div><span>ACQUIRED 24H</span><b>${s.day}</b></div><div><span>7 DAYS</span><b>${s.week}</b></div></div>
+          <div class="m-row"><div><span>QUALIFIED</span><b>${pct}<small>%</small></b></div><div><span>DUE NOW</span><b class="${s.due ? "warn" : ""}">${s.due}</b></div></div>
+          ${bar("NEW", s.fresh)}${bar("DESIGN SENT", s.design)}${bar("WON", s.won)}
+        </div>
       </div>
-      <div class="abby-wrap" id="abby-btn" role="button" tabindex="0" aria-label="Abby. Click to boost">${RING}${ABBY_SVG}</div>
-      <div class="log" id="abby-log"><span class="caret">›</span> <span id="abby-line">initializing lead scan…</span></div>
-      <div class="cards" id="abby-cards"></div>
-      <div class="gauge" aria-hidden="true">
-        <svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="44" fill="none" stroke="rgba(103,232,249,.25)" stroke-width="6"/><circle class="spin" cx="50" cy="50" r="44" fill="none" stroke="#22D3EE" stroke-width="6" stroke-dasharray="60 216" stroke-linecap="round"/><circle cx="50" cy="50" r="34" fill="none" stroke="rgba(250,204,21,.5)" stroke-width="1" stroke-dasharray="2 4"/></svg>
-        <b id="abby-pile">${leads.length}</b><small>LEADS ACQUIRED</small>
-      </div>
-      <div class="hud-corner tl"></div><div class="hud-corner tr"></div><div class="hud-corner bl"></div><div class="hud-corner br"></div>
     </section>`;
+  }
+
+  function logLines(leads) {
+    const s = stats(leads);
+    const recent = leads.slice().sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 8).reverse();
+    const lines = [
+      [Date.now(), "SYS", `lead index loaded · ${s.total} records`],
+      [Date.now(), "SYS", `targets · plumbing / hvac / insulation · bay area houston`],
+      ...recent.map((l) => [l.created_at, "ACQ", `${l.business_name}${l.trade ? " · " + l.trade : ""}${l.city ? " · " + l.city : ""}${l.owner_name ? " · owner " + l.owner_name : ""}`]),
+      [Date.now(), "PIPE", `${s.fresh} new · ${s.design} design sent · ${s.won} won`],
+      [Date.now(), s.due ? "ALRT" : "SYS", s.due ? `${s.due} follow-up${s.due > 1 ? "s" : ""} due` : "no follow-ups due"],
+      [Date.now(), "SYS", s.active ? "acquisition stream active" : "standing by for next research batch"],
+    ];
+    return lines;
   }
 
   function start(leads) {
     const scene = document.getElementById("abby-scene");
     if (!scene) return;
-    const cards = document.getElementById("abby-cards");
-    const line = document.getElementById("abby-line");
-    const recent = leads.slice().sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 12);
-    const names = recent.length ? recent.map((l) => [l.business_name, [l.trade, l.city].filter(Boolean).join(" · "), l.owner_name])
-      : [["SCANNING…", "Plumbing · Pasadena"], ["SCANNING…", "HVAC · Deer Park"], ["SCANNING…", "Insulation · La Porte"]];
-    const lines = recent.length
-      ? ["sweeping google maps · bay area houston", "owner match found · confidence high", "website check: no domain detected", "cross-referencing tx license records", "website age > 10 yrs · flagged", "lead acquired · added to pipeline"]
-      : ["lead engine idle · awaiting next batch", "targets loaded: plumbing · hvac · insulation", "standing by for orders, johnathon", "systems nominal"];
-    let i = 0, j = 0;
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const alive = () => document.body.contains(scene);
 
-    function type(text) {
-      clearInterval(line._t);
-      let k = 0;
-      line.textContent = "";
-      line._t = setInterval(() => {
-        if (!alive() || k > text.length) return clearInterval(line._t);
-        line.textContent = text.slice(0, k++);
-      }, reduce ? 0 : 28);
-    }
-    function toss() {
-      if (!alive()) return clearInterval(t1), clearInterval(t2);
-      const [name, sub, owner] = names[i++ % names.length];
-      const c = document.createElement("div");
-      c.className = "lead-card";
-      c.innerHTML = `<i>LEAD ${String(i).padStart(3, "0")}</i><b>${esc(name)}</b><small>${esc(sub)}${owner ? " · " + esc(owner) : ""}</small>`;
-      cards.appendChild(c);
-      setTimeout(() => c.remove(), 2600);
-    }
-    function talk() { if (alive()) type(lines[j++ % lines.length]); }
-    let t1 = setInterval(toss, reduce ? 6000 : 2200), t2 = setInterval(talk, 4200);
-    toss(); talk();
+    // clock
+    const clock = document.getElementById("ai-clock");
+    const tick = () => { if (!alive()) return clearInterval(ct); clock.textContent = ts(Date.now()); };
+    const ct = setInterval(tick, 1000); tick();
 
-    const boost = () => {
-      scene.classList.add("sprint");
-      type("boost engaged · max scan speed");
-      for (let k = 0; k < 3; k++) setTimeout(toss, k * 350);
-      clearTimeout(scene._s);
-      scene._s = setTimeout(() => scene.classList.remove("sprint"), 3000);
+    // log: print lines one by one, then keep cycling the acquisitions
+    const log = document.getElementById("ai-log");
+    const lines = logLines(leads);
+    let li = 0;
+    const print = () => {
+      if (!alive()) return clearInterval(lt);
+      const [t, tag, msg] = lines[li++ % lines.length];
+      const row = document.createElement("div");
+      row.className = "ai-line t-" + tag.toLowerCase();
+      row.innerHTML = `<span class="ai-ts">${stamp(t)}</span><span class="ai-tag">${tag}</span><span class="ai-msg">${esc(msg)}</span>`;
+      log.appendChild(row);
+      while (log.children.length > 6) log.removeChild(log.firstChild);
     };
-    const btn = document.getElementById("abby-btn");
-    btn.addEventListener("click", boost);
-    btn.addEventListener("keydown", (e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), boost()));
+    if (reduce) lines.slice(-6).forEach(() => print());
+    const lt = setInterval(print, reduce ? 999999 : 1400); print();
+
+    // canvases
+    const core = document.getElementById("ai-core"), wave = document.getElementById("ai-wave");
+    const fit = (c) => { const r = c.getBoundingClientRect(), d = window.devicePixelRatio || 1; c.width = r.width * d; c.height = r.height * d; const x = c.getContext("2d"); x.setTransform(d, 0, 0, d, 0, 0); return [x, r.width, r.height]; };
+    let [cx, cw, chh] = fit(core), [wx, ww, wh] = fit(wave);
+    const onResize = () => { [cx, cw, chh] = fit(core); [wx, ww, wh] = fit(wave); };
+    window.addEventListener("resize", onResize);
+
+    // fibonacci sphere
+    const N = 140, pts = [];
+    for (let i = 0; i < N; i++) {
+      const y = 1 - (i / (N - 1)) * 2, r = Math.sqrt(1 - y * y), th = i * 2.399963;
+      pts.push([Math.cos(th) * r, y, Math.sin(th) * r]);
+    }
+    const links = [];
+    for (let i = 0; i < N; i++) for (let j = i + 1; j < N; j++) {
+      const d = Math.hypot(pts[i][0] - pts[j][0], pts[i][1] - pts[j][1], pts[i][2] - pts[j][2]);
+      if (d < 0.3) links.push([i, j]);
+    }
+    const intensity = Math.min(1, 0.35 + leads.length / 40);
+
+    function drawCore(t) {
+      const R = Math.min(cw, chh) * 0.36, ox = cw / 2, oy = chh / 2;
+      cx.clearRect(0, 0, cw, chh);
+      const a = t * 0.00025, tilt = 0.45, ca = Math.cos(a), sa = Math.sin(a), ct2 = Math.cos(tilt), st = Math.sin(tilt);
+      const P = pts.map(([x, y, z]) => {
+        const x1 = x * ca + z * sa, z1 = -x * sa + z * ca;
+        const y1 = y * ct2 - z1 * st, z2 = y * st + z1 * ct2;
+        return [ox + x1 * R, oy + y1 * R, z2];
+      });
+      // glow
+      const pulse = 0.5 + 0.5 * Math.sin(t * 0.002);
+      const g = cx.createRadialGradient(ox, oy, 0, ox, oy, R * 1.25);
+      g.addColorStop(0, `rgba(34,211,238,${0.18 + 0.12 * pulse * intensity})`); g.addColorStop(1, "rgba(34,211,238,0)");
+      cx.fillStyle = g; cx.beginPath(); cx.arc(ox, oy, R * 1.25, 0, 7); cx.fill();
+      // links
+      cx.lineWidth = 0.6;
+      for (const [i, j] of links) {
+        const z = (P[i][2] + P[j][2]) / 2;
+        cx.strokeStyle = `rgba(103,232,249,${0.05 + 0.25 * ((z + 1) / 2)})`;
+        cx.beginPath(); cx.moveTo(P[i][0], P[i][1]); cx.lineTo(P[j][0], P[j][1]); cx.stroke();
+      }
+      // nodes
+      P.forEach(([x, y, z], i) => {
+        const hot = i % 17 === Math.floor(t / 400) % 17;
+        cx.fillStyle = hot ? "rgba(250,204,21,.95)" : `rgba(165,243,252,${0.25 + 0.75 * ((z + 1) / 2)})`;
+        cx.beginPath(); cx.arc(x, y, hot ? 2.4 : 1 + (z + 1) * 0.6, 0, 7); cx.fill();
+      });
+      // orbit rings
+      cx.lineWidth = 1;
+      [[1.32, 0.28, 0.0006, "rgba(34,211,238,.45)"], [1.48, 0.62, -0.0004, "rgba(250,204,21,.35)"]].forEach(([k, sq, sp, col]) => {
+        cx.save(); cx.translate(ox, oy); cx.rotate(t * sp); cx.scale(1, sq);
+        cx.strokeStyle = col; cx.setLineDash([R * 0.5, R * 0.18, 3, R * 0.18]);
+        cx.beginPath(); cx.arc(0, 0, R * k, 0, 7); cx.stroke(); cx.restore();
+      });
+      cx.setLineDash([]);
+    }
+
+    function drawWave(t) {
+      wx.clearRect(0, 0, ww, wh);
+      const mid = wh / 2;
+      wx.strokeStyle = "rgba(34,211,238,.12)"; wx.lineWidth = 1;
+      for (let x = 0; x < ww; x += 24) { wx.beginPath(); wx.moveTo(x, 0); wx.lineTo(x, wh); wx.stroke(); }
+      wx.beginPath(); wx.moveTo(0, mid); wx.lineTo(ww, mid); wx.stroke();
+      [[1, "rgba(103,232,249,.9)", 1.4], [0.55, "rgba(250,204,21,.6)", 1]].forEach(([amp, col, lw]) => {
+        wx.strokeStyle = col; wx.lineWidth = lw; wx.beginPath();
+        for (let x = 0; x <= ww; x += 2) {
+          const p = x / ww;
+          const env = Math.sin(Math.PI * p);
+          const y = mid + env * amp * (wh * 0.32) * intensity * (Math.sin(p * 18 - t * 0.004) * 0.6 + Math.sin(p * 41 + t * 0.007) * 0.3 + Math.sin(p * 7 - t * 0.002) * 0.4);
+          x ? wx.lineTo(x, y) : wx.moveTo(x, y);
+        }
+        wx.stroke();
+      });
+    }
+
+    function frame(t) {
+      if (!alive()) return window.removeEventListener("resize", onResize);
+      drawCore(t); drawWave(t);
+      if (!reduce) requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
   }
 
   return { html, start };
