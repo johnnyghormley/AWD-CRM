@@ -92,7 +92,8 @@
   }
 
   // Compact row for the Today screen: company, contact, highlighted tap-to-call phone, missing-info flag.
-  function todayRow(l, due) {
+  // `extra` is optional HTML (status pill, follow-up checkbox) shown between the details and the phone button.
+  function todayRow(l, due, extra = "") {
     const phone = usable(l.owner_phone) ? l.owner_phone : l.business_phone;
     const missing = l.lead_status === "Missing Info"
       ? (usable(l.missing) ? l.missing.replace(/^needs?\s*/i, "").split(/[;.]/)[0].slice(0, 60) : "info") : "";
@@ -104,8 +105,56 @@
         ${missing ? `<span class="trow-missing">Missing: ${esc(missing)}</span>` : ""}
         ${due ? `<span class="due ${late ? "late" : ""}">${late ? "Overdue · " : "Due "}${fmtDate(l.follow_up_date)}</span>` : ""}
       </div>
+      ${extra}
       ${usable(phone) ? `<a class="trow-phone" href="tel:${esc(tel(phone))}"><svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1z"/></svg>${esc(phone)}</a>` : '<span class="trow-nophone">No phone</span>'}
     </div>`;
+  }
+
+  // ---------- Today tabs: Ready / Missing info / Called / Follow-up ----------
+  const FOLLOW_STATUSES = ["Follow Up", "Callback"];
+  const TABS = [
+    ["ready", "Ready", (l) => l.lead_status !== "Missing Info" && l.call_status === "New", "Qualified leads not called yet."],
+    ["missing", "Missing info", (l) => l.lead_status === "Missing Info" && l.call_status === "New", "Not called yet, still missing some info."],
+    ["called", "Called", (l) => l.call_status !== "New", "Everyone you've called. Check Follow up to move a lead to the Follow-up tab."],
+    ["followup", "Follow-up", (l) => FOLLOW_STATUSES.includes(l.call_status), "Called and marked to follow up."]
+  ];
+  let currentTab = (() => { try { return localStorage.getItem("awd-tab") || "ready"; } catch (_) { return "ready"; } })();
+
+  function tabRow(l, tab) {
+    const status = tab === "called" || tab === "followup" ? `<span class="pill ${statusClass(l.call_status)}">${esc(l.call_status)}</span>` : "";
+    const box = tab === "called" ? `<label class="fu-check"><input type="checkbox" data-id="${l.id}" ${FOLLOW_STATUSES.includes(l.call_status) ? "checked" : ""}>Follow up</label>` : "";
+    return todayRow(l, tab !== "ready" && tab !== "missing" && !!l.follow_up_date, `<div class="trow-extra">${status}${box}</div>`);
+  }
+
+  function drawTabs(leads) {
+    const el = document.getElementById("tabs");
+    if (!el) return;
+    if (!TABS.some(([k]) => k === currentTab)) currentTab = "ready";
+    const [, , test, hint] = TABS.find(([k]) => k === currentTab);
+    const rows = leads.filter(test);
+    el.innerHTML = `
+      <div class="tabbar" role="tablist">
+        ${TABS.map(([k, label, t]) => `<button type="button" role="tab" class="tab ${k === currentTab ? "on" : ""}" data-tab="${k}" aria-selected="${k === currentTab}">${label} <span>${leads.filter(t).length}</span></button>`).join("")}
+      </div>
+      <p class="muted small tab-hint">${hint}</p>
+      <div class="tlist">${rows.map((l) => tabRow(l, currentTab)).join("") || `<p class="muted pad">Nothing here yet.</p>`}</div>`;
+    el.querySelectorAll(".tab").forEach((b) => b.onclick = () => {
+      currentTab = b.dataset.tab;
+      try { localStorage.setItem("awd-tab", currentTab); } catch (_) {}
+      drawTabs(leads);
+    });
+    el.querySelectorAll(".trow").forEach((r) => r.addEventListener("click", (e) => { if (!e.target.closest("a, label, input")) location.hash = r.dataset.href; }));
+    el.querySelectorAll(".fu-check input").forEach((cb) => cb.onchange = async () => {
+      const l = leads.find((x) => String(x.id) === cb.dataset.id);
+      const from = l.call_status, to = cb.checked ? "Follow Up" : "Called";
+      cb.disabled = true;
+      const { error: e1 } = await sb.from("leads").update({ call_status: to }).eq("id", l.id);
+      if (e1) { cb.checked = !cb.checked; cb.disabled = false; return fail(e1); }
+      await sb.from("activities").insert({ lead_id: l.id, kind: "Note", note: `Status: ${from} → ${to}` });
+      l.call_status = to;
+      toast(cb.checked ? `${l.business_name} moved to Follow-up` : `${l.business_name} removed from Follow-up`);
+      drawTabs(leads);
+    });
   }
 
   async function todayView() {
@@ -116,6 +165,7 @@
     const fresh = leads.filter((l) => l.call_status === "New");
     const count = (s) => leads.filter((l) => l.call_status === s).length;
     app.innerHTML = `
+      <section id="tabs"></section>
       ${window.AbbyRunner ? AbbyRunner.html(leads) : ""}
       <section class="stats">
         ${[["Total leads", leads.length], ["New", count("New")], ["Design sent", count("Design Sent")], ["Follow up", count("Follow Up") + count("Callback")], ["Won", count("Won")]]
@@ -126,6 +176,7 @@
       <h2 class="h">New, not called yet <span class="muted">(${fresh.length})</span></h2>
       <div class="tlist">${fresh.slice(0, 50).map((l) => todayRow(l)).join("") || `<p class="muted pad">No new leads. <a href="#/import">Import Abby's list</a> or <a href="#/new">add one</a>.</p>`}</div>`;
     app.querySelectorAll(".trow").forEach((r) => r.addEventListener("click", (e) => { if (!e.target.closest("a")) location.hash = r.dataset.href; }));
+    drawTabs(leads);
     if (window.AbbyRunner) AbbyRunner.start(leads);
   }
 
