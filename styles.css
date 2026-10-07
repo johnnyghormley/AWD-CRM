@@ -157,6 +157,7 @@ details[open] summary { margin-bottom: 12px; }
 .tab.on span { color: var(--y); }
 .tab:focus-visible { outline: 3px solid var(--y); outline-offset: 1px; }
 .tab-hint { margin: 0; }
+.sub-h { font-size: 15px; margin: 6px 0 0; }
 .trow-extra { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-wrap: wrap; justify-content: flex-end; }
 .fu-check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; }
 .fu-check input { width: 18px; height: 18px; padding: 0; accent-color: var(--c); }

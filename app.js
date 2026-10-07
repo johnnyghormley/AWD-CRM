@@ -110,25 +110,30 @@
     </div>`;
   }
 
-  // ---------- Today tabs: Ready / Missing info / Called / Follow-up ----------
+  // ---------- Today tabs: Ready / Missing info / Called (Follow up + Called lists) ----------
   const FOLLOW_STATUSES = ["Follow Up", "Callback"];
+  const isFollow = (l) => FOLLOW_STATUSES.includes(l.call_status);
   const TABS = [
     ["ready", "Ready", (l) => l.lead_status !== "Missing Info" && l.call_status === "New", "Qualified leads not called yet."],
     ["missing", "Missing info", (l) => l.lead_status === "Missing Info" && l.call_status === "New", "Not called yet, still missing some info."],
-    ["called", "Called", (l) => l.call_status !== "New", "Everyone you've called. Check Follow up to move a lead to the Follow-up tab."],
-    ["followup", "Follow-up", (l) => FOLLOW_STATUSES.includes(l.call_status), "Called and marked to follow up."]
+    ["called", "Called", (l) => l.call_status !== "New", "Everyone you've called. Check Follow up to move a lead into the Follow up list."]
   ];
   let currentTab = (() => { try { return localStorage.getItem("awd-tab") || "ready"; } catch (_) { return "ready"; } })();
 
   function tabRow(l, tab) {
-    const status = tab === "called" || tab === "followup" ? `<span class="pill ${statusClass(l.call_status)}">${esc(l.call_status)}</span>` : "";
-    const box = tab === "called" ? `<label class="fu-check"><input type="checkbox" data-id="${l.id}" ${FOLLOW_STATUSES.includes(l.call_status) ? "checked" : ""}>Follow up</label>` : "";
-    return todayRow(l, tab !== "ready" && tab !== "missing" && !!l.follow_up_date, `<div class="trow-extra">${status}${box}</div>`);
+    const status = tab === "called" ? `<span class="pill ${statusClass(l.call_status)}">${esc(l.call_status)}</span>` : "";
+    const box = tab === "called" ? `<label class="fu-check"><input type="checkbox" data-id="${l.id}" ${isFollow(l) ? "checked" : ""}>Follow up</label>` : "";
+    return todayRow(l, tab === "called" && !!l.follow_up_date, `<div class="trow-extra">${status}${box}</div>`);
+  }
+
+  function tabList(rows, tab, empty) {
+    return `<div class="tlist">${rows.map((l) => tabRow(l, tab)).join("") || `<p class="muted pad">${empty}</p>`}</div>`;
   }
 
   function drawTabs(leads) {
     const el = document.getElementById("tabs");
     if (!el) return;
+    if (currentTab === "followup") currentTab = "called"; // old Follow-up tab now lives inside Called
     if (!TABS.some(([k]) => k === currentTab)) currentTab = "ready";
     const [, , test, hint] = TABS.find(([k]) => k === currentTab);
     const rows = leads.filter(test);
@@ -137,7 +142,12 @@
         ${TABS.map(([k, label, t]) => `<button type="button" role="tab" class="tab ${k === currentTab ? "on" : ""}" data-tab="${k}" aria-selected="${k === currentTab}">${label} <span>${leads.filter(t).length}</span></button>`).join("")}
       </div>
       <p class="muted small tab-hint">${hint}</p>
-      <div class="tlist">${rows.map((l) => tabRow(l, currentTab)).join("") || `<p class="muted pad">Nothing here yet.</p>`}</div>`;
+      ${currentTab === "called" ? `
+        <h3 class="sub-h">Follow up <span class="muted">(${rows.filter(isFollow).length})</span></h3>
+        ${tabList(rows.filter(isFollow), "called", "No follow-ups.")}
+        <h3 class="sub-h">Called <span class="muted">(${rows.filter((l) => !isFollow(l)).length})</span></h3>
+        ${tabList(rows.filter((l) => !isFollow(l)), "called", "Nothing here yet.")}`
+      : tabList(rows, currentTab, "Nothing here yet.")}`;
     el.querySelectorAll(".tab").forEach((b) => b.onclick = () => {
       currentTab = b.dataset.tab;
       try { localStorage.setItem("awd-tab", currentTab); } catch (_) {}
@@ -152,7 +162,7 @@
       if (e1) { cb.checked = !cb.checked; cb.disabled = false; return fail(e1); }
       await sb.from("activities").insert({ lead_id: l.id, kind: "Note", note: `Status: ${from} → ${to}` });
       l.call_status = to;
-      toast(cb.checked ? `${l.business_name} moved to Follow-up` : `${l.business_name} removed from Follow-up`);
+      toast(cb.checked ? `${l.business_name} moved to Follow up` : `${l.business_name} removed from Follow up`);
       drawTabs(leads);
     });
   }
