@@ -168,3 +168,7 @@ main > * { min-width: 0; }
 .pills .pill.warn { border-radius: 10px; padding: 6px 10px; }
 .actions .btn { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 @media (max-width: 760px) { .pills { justify-content: flex-start; } }
+
+/* ---------- Install app button ---------- */
+.linkbtn.install { opacity: 1; color: var(--y); border: 1px solid rgba(250,204,21,.5); }
+.linkbtn.install:hover { background: var(--y); color: var(--c); }

@@ -422,4 +422,17 @@
   }
   window.addEventListener("hashchange", route);
   route();
+
+  // ---------- installable app (Chrome/Edge "Install app") ----------
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch((e) => console.warn("SW", e));
+  let installPrompt = null;
+  const installBtn = document.getElementById("install");
+  window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); installPrompt = e; installBtn.hidden = false; });
+  installBtn.onclick = async () => {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    await installPrompt.userChoice;
+    installPrompt = null; installBtn.hidden = true;
+  };
+  window.addEventListener("appinstalled", () => { installBtn.hidden = true; toast("AWD CRM installed"); });
 })();

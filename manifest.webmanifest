@@ -1,0 +1,20 @@
+{
+  "name": "AWD CRM",
+  "short_name": "AWD CRM",
+  "description": "Affordable Web Designs call list and lead tracker.",
+  "id": "/",
+  "start_url": "/#/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#F3F4F6",
+  "theme_color": "#1F2937",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Ready", "url": "/#/ready", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Called", "url": "/#/called", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] }
+  ]
+}
