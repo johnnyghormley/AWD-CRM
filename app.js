@@ -113,6 +113,7 @@
   // ---------- Top-bar tabs: Ready / Missing info / Called (Follow up + Called lists) ----------
   const FOLLOW_STATUSES = ["Follow Up", "Callback"];
   const isFollow = (l) => FOLLOW_STATUSES.includes(l.call_status);
+  const isDnc = (l) => l.call_status === "Do Not Call";
   const TABS = [
     ["ready", "Ready", (l) => l.lead_status !== "Missing Info" && l.call_status === "New", "Qualified leads not called yet."],
     ["missing", "Missing info", (l) => l.lead_status === "Missing Info" && l.call_status === "New", "Not called yet, still missing some info."],
@@ -129,7 +130,7 @@
 
   function tabRow(l, tab) {
     const status = tab === "called" ? `<span class="pill ${statusClass(l.call_status)}">${esc(l.call_status)}</span>` : "";
-    const box = tab === "called" ? `<label class="fu-check"><input type="checkbox" data-id="${l.id}" ${isFollow(l) ? "checked" : ""}>Follow up</label>` : "";
+    const box = tab === "called" && !isDnc(l) ? `<label class="fu-check"><input type="checkbox" data-id="${l.id}" ${isFollow(l) ? "checked" : ""}>Follow up</label>` : "";
     return todayRow(l, tab === "called" && !!l.follow_up_date, `<div class="trow-extra">${status}${box}</div>`);
   }
 
@@ -154,8 +155,10 @@
       ${tab === "called" ? `
         <h3 class="sub-h">Follow up <span class="muted">(${rows.filter(isFollow).length})</span></h3>
         ${tabList(rows.filter(isFollow), "called", "No follow-ups.")}
-        <h3 class="sub-h">Called <span class="muted">(${rows.filter((l) => !isFollow(l)).length})</span></h3>
-        ${tabList(rows.filter((l) => !isFollow(l)), "called", "Nothing here yet.")}`
+        <h3 class="sub-h">Called <span class="muted">(${rows.filter((l) => !isFollow(l) && !isDnc(l)).length})</span></h3>
+        ${tabList(rows.filter((l) => !isFollow(l) && !isDnc(l)), "called", "Nothing here yet.")}
+        <h3 class="sub-h">Do not call <span class="muted">(${rows.filter(isDnc).length})</span></h3>
+        ${tabList(rows.filter(isDnc), "called", "No one on the do-not-call list.")}`
       : tabList(rows, tab, "Nothing here yet.")}`;
     el.querySelectorAll(".trow").forEach((r) => r.addEventListener("click", (e) => { if (!e.target.closest("a, label, input")) location.hash = r.dataset.href; }));
     el.querySelectorAll(".fu-check input").forEach((cb) => cb.onchange = async () => {
