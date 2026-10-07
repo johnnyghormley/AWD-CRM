@@ -172,3 +172,11 @@ main > * { min-width: 0; }
 /* ---------- Install app button ---------- */
 .linkbtn.install { opacity: 1; color: var(--y); border: 1px solid rgba(250,204,21,.5); }
 .linkbtn.install:hover { background: var(--y); color: var(--c); }
+
+/* Inquired tab (website form requests) */
+.nav-count.hot { background: var(--y); color: var(--c); }
+.btn.small { padding: 7px 11px; font-size: 13px; }
+.trow.inq { cursor: default; flex-wrap: wrap; }
+.trow.inq .trow-extra { display: flex; gap: 6px; flex-wrap: wrap; }
+.inq-msg { display: block; margin-top: 4px; font-size: 13px; color: var(--c); font-style: italic; overflow-wrap: anywhere; }
+.trow.inq .trow-main { flex: 1 1 260px; }

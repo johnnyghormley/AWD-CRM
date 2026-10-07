@@ -180,6 +180,66 @@
     });
   }
 
+  // ---------- Inquired: requests sent from the "Get your free design" form on the AWD website ----------
+  async function refreshInquiryCount() {
+    const { count } = await sb.from("inquiries").select("id", { count: "exact", head: true }).eq("status", "New");
+    const b = nav.querySelector('[data-count="inquired"]');
+    if (b) { b.textContent = count || ""; b.classList.toggle("hot", !!count); }
+  }
+
+  function inquiryRow(q) {
+    const site = usable(q.website) ? (/^https?:/i.test(q.website) ? q.website : "https://" + q.website) : "";
+    const btns = q.status === "New"
+      ? `<button class="btn small" data-add="${q.id}">Add to leads</button><button class="btn ghost small" data-dismiss="${q.id}">Dismiss</button>`
+      : q.lead_id ? `<a class="btn ghost small" href="#/lead/${q.lead_id}">Open lead</a>` : `<span class="pill">${esc(q.status)}</span>`;
+    return `<div class="trow inq">
+      <div class="trow-main">
+        <span class="trow-name">${esc(q.business)}</span>
+        <span class="trow-contact">${esc(q.name)}${usable(q.trade) ? " · " + esc(q.trade) : ""}</span>
+        <span class="muted small">${fmtTime(q.created_at)}${usable(q.email) ? ` · <a href="mailto:${esc(q.email)}">${esc(q.email)}</a>` : ""}${site ? ` · <a href="${esc(site)}" target="_blank" rel="noopener">${esc(q.website)}</a>` : " · No website"}</span>
+        ${usable(q.message) ? `<span class="inq-msg">“${esc(q.message)}”</span>` : ""}
+      </div>
+      <div class="trow-extra">${btns}</div>
+      <a class="trow-phone" href="tel:${esc(tel(q.phone))}"><svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1z"/></svg>${esc(q.phone)}</a>
+    </div>`;
+  }
+
+  async function inquiredView() {
+    const { data: qs, error } = await sb.from("inquiries").select("*").order("created_at", { ascending: false });
+    if (error) return fail(error);
+    const fresh = qs.filter((q) => q.status === "New"), done = qs.filter((q) => q.status !== "New");
+    app.innerHTML = `
+      <h2 class="h">Inquired <span class="muted">(${fresh.length})</span></h2>
+      <p class="muted small tab-hint">Requests sent from the "Get your free design" form on the AWD website. Call them, then Add to leads to work them like any other lead.</p>
+      <div class="tlist">${fresh.map(inquiryRow).join("") || `<p class="muted pad">No new inquiries yet.</p>`}</div>
+      ${done.length ? `<h3 class="sub-h">Handled <span class="muted">(${done.length})</span></h3><div class="tlist">${done.map(inquiryRow).join("")}</div>` : ""}`;
+    refreshInquiryCount();
+    app.querySelectorAll("[data-add]").forEach((b) => b.onclick = async () => {
+      const q = qs.find((x) => x.id === b.dataset.add);
+      b.disabled = true;
+      const hasSite = usable(q.website);
+      const lead = {
+        business_name: q.business, owner_name: q.name, owner_phone: q.phone, owner_phone_type: "Direct",
+        owner_email: q.email || null, owner_email_status: q.email ? "Verified" : null, trade: q.trade || null,
+        website: hasSite ? q.website : null, list: hasSite ? "B" : "A", website_status: hasSite ? null : "None",
+        lead_status: "Qualified", call_status: "New", sources: "Website inquiry form " + q.created_at.slice(0, 10)
+      };
+      const { data, error: e1 } = await sb.from("leads").insert(lead).select("id").single();
+      if (e1) { b.disabled = false; return fail(e1); }
+      await sb.from("activities").insert({ lead_id: data.id, kind: "Note", note: `Inquired through the website form on ${fmtTime(q.created_at)}.${q.message ? "\nMessage: " + q.message : ""}` });
+      const { error: e2 } = await sb.from("inquiries").update({ status: "Added to leads", lead_id: data.id }).eq("id", q.id);
+      if (e2) return fail(e2);
+      toast(`${q.business} added to leads`); location.hash = "#/lead/" + data.id;
+    });
+    app.querySelectorAll("[data-dismiss]").forEach((b) => b.onclick = async () => {
+      const q = qs.find((x) => x.id === b.dataset.dismiss);
+      if (!confirm(`Dismiss the inquiry from ${q.business}? (Spam, duplicate, etc.)`)) return;
+      const { error: e1 } = await sb.from("inquiries").update({ status: "Dismissed" }).eq("id", q.id);
+      if (e1) return fail(e1);
+      toast("Inquiry dismissed"); inquiredView();
+    });
+  }
+
   async function todayView() {
     const { data: leads, error } = await sb.from("leads").select("*").order("follow_up_date", { ascending: true, nullsFirst: false });
     if (error) return fail(error);
@@ -409,8 +469,10 @@
     const h = location.hash.replace(/^#/, "") || "/";
     nav.querySelectorAll("a").forEach((a) => a.classList.toggle("on", a.getAttribute("href") === "#" + h || (h.startsWith("/lead/") && a.getAttribute("href") === "#/leads")));
     app.innerHTML = `<p class="muted pad">Loading…</p>`;
+    refreshInquiryCount().catch(() => {});
     try {
       if (h === "/") await todayView();
+      else if (h === "/inquired") await inquiredView();
       else if (h === "/ready" || h === "/missing" || h === "/called") await tabView(h.slice(1));
       else if (h === "/leads") await leadsView();
       else if (h === "/new") newView();
