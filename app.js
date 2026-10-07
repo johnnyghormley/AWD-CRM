@@ -110,7 +110,7 @@
     </div>`;
   }
 
-  // ---------- Today tabs: Ready / Missing info / Called (Follow up + Called lists) ----------
+  // ---------- Top-bar tabs: Ready / Missing info / Called (Follow up + Called lists) ----------
   const FOLLOW_STATUSES = ["Follow Up", "Callback"];
   const isFollow = (l) => FOLLOW_STATUSES.includes(l.call_status);
   const TABS = [
@@ -118,7 +118,14 @@
     ["missing", "Missing info", (l) => l.lead_status === "Missing Info" && l.call_status === "New", "Not called yet, still missing some info."],
     ["called", "Called", (l) => l.call_status !== "New", "Everyone you've called. Check Follow up to move a lead into the Follow up list."]
   ];
-  let currentTab = (() => { try { return localStorage.getItem("awd-tab") || "ready"; } catch (_) { return "ready"; } })();
+
+  // Show each tab's count next to its link in the top bar.
+  function setNavCounts(leads) {
+    TABS.forEach(([k, , test]) => {
+      const b = nav.querySelector(`[data-count="${k}"]`);
+      if (b) b.textContent = leads.filter(test).length;
+    });
+  }
 
   function tabRow(l, tab) {
     const status = tab === "called" ? `<span class="pill ${statusClass(l.call_status)}">${esc(l.call_status)}</span>` : "";
@@ -130,29 +137,26 @@
     return `<div class="tlist">${rows.map((l) => tabRow(l, tab)).join("") || `<p class="muted pad">${empty}</p>`}</div>`;
   }
 
-  function drawTabs(leads) {
-    const el = document.getElementById("tabs");
-    if (!el) return;
-    if (currentTab === "followup") currentTab = "called"; // old Follow-up tab now lives inside Called
-    if (!TABS.some(([k]) => k === currentTab)) currentTab = "ready";
-    const [, , test, hint] = TABS.find(([k]) => k === currentTab);
+  async function tabView(tab) {
+    const { data: leads, error } = await sb.from("leads").select("*").order("follow_up_date", { ascending: true, nullsFirst: false });
+    if (error) return fail(error);
+    drawTab(leads, tab);
+  }
+
+  function drawTab(leads, tab) {
+    const el = app;
+    const [, label, test, hint] = TABS.find(([k]) => k === tab);
     const rows = leads.filter(test);
+    setNavCounts(leads);
     el.innerHTML = `
-      <div class="tabbar" role="tablist">
-        ${TABS.map(([k, label, t]) => `<button type="button" role="tab" class="tab ${k === currentTab ? "on" : ""}" data-tab="${k}" aria-selected="${k === currentTab}">${label} <span>${leads.filter(t).length}</span></button>`).join("")}
-      </div>
+      <h2 class="h">${label} <span class="muted">(${rows.length})</span></h2>
       <p class="muted small tab-hint">${hint}</p>
-      ${currentTab === "called" ? `
+      ${tab === "called" ? `
         <h3 class="sub-h">Follow up <span class="muted">(${rows.filter(isFollow).length})</span></h3>
         ${tabList(rows.filter(isFollow), "called", "No follow-ups.")}
         <h3 class="sub-h">Called <span class="muted">(${rows.filter((l) => !isFollow(l)).length})</span></h3>
         ${tabList(rows.filter((l) => !isFollow(l)), "called", "Nothing here yet.")}`
-      : tabList(rows, currentTab, "Nothing here yet.")}`;
-    el.querySelectorAll(".tab").forEach((b) => b.onclick = () => {
-      currentTab = b.dataset.tab;
-      try { localStorage.setItem("awd-tab", currentTab); } catch (_) {}
-      drawTabs(leads);
-    });
+      : tabList(rows, tab, "Nothing here yet.")}`;
     el.querySelectorAll(".trow").forEach((r) => r.addEventListener("click", (e) => { if (!e.target.closest("a, label, input")) location.hash = r.dataset.href; }));
     el.querySelectorAll(".fu-check input").forEach((cb) => cb.onchange = async () => {
       const l = leads.find((x) => String(x.id) === cb.dataset.id);
@@ -163,7 +167,7 @@
       await sb.from("activities").insert({ lead_id: l.id, kind: "Note", note: `Status: ${from} → ${to}` });
       l.call_status = to;
       toast(cb.checked ? `${l.business_name} moved to Follow up` : `${l.business_name} removed from Follow up`);
-      drawTabs(leads);
+      drawTab(leads, tab);
     });
   }
 
@@ -174,8 +178,8 @@
     const due = leads.filter((l) => open(l) && l.follow_up_date && l.follow_up_date <= today());
     const fresh = leads.filter((l) => l.call_status === "New");
     const count = (s) => leads.filter((l) => l.call_status === s).length;
+    setNavCounts(leads);
     app.innerHTML = `
-      <section id="tabs"></section>
       ${window.AbbyRunner ? AbbyRunner.html(leads) : ""}
       <section class="stats">
         ${[["Total leads", leads.length], ["New", count("New")], ["Design sent", count("Design Sent")], ["Follow up", count("Follow Up") + count("Callback")], ["Won", count("Won")]]
@@ -186,7 +190,6 @@
       <h2 class="h">New, not called yet <span class="muted">(${fresh.length})</span></h2>
       <div class="tlist">${fresh.slice(0, 50).map((l) => todayRow(l)).join("") || `<p class="muted pad">No new leads. <a href="#/import">Import Abby's list</a> or <a href="#/new">add one</a>.</p>`}</div>`;
     app.querySelectorAll(".trow").forEach((r) => r.addEventListener("click", (e) => { if (!e.target.closest("a")) location.hash = r.dataset.href; }));
-    drawTabs(leads);
     if (window.AbbyRunner) AbbyRunner.start(leads);
   }
 
@@ -399,6 +402,7 @@
     app.innerHTML = `<p class="muted pad">Loading…</p>`;
     try {
       if (h === "/") await todayView();
+      else if (h === "/ready" || h === "/missing" || h === "/called") await tabView(h.slice(1));
       else if (h === "/leads") await leadsView();
       else if (h === "/new") newView();
       else if (h === "/import") importView();
