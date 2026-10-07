@@ -113,7 +113,9 @@
   // ---------- Top-bar tabs: Ready / Missing info / Called (Follow up + Called lists) ----------
   const FOLLOW_STATUSES = ["Follow Up", "Callback"];
   const isFollow = (l) => FOLLOW_STATUSES.includes(l.call_status);
-  const isDnc = (l) => l.call_status === "Do Not Call";
+  // Do not call = a logged call/note with outcome "Asked not to call" (or the lead's status set to Do Not Call).
+  let dncIds = new Set();
+  const isDnc = (l) => dncIds.has(String(l.id)) || l.call_status === "Do Not Call";
   const TABS = [
     ["ready", "Ready", (l) => l.lead_status !== "Missing Info" && l.call_status === "New", "Qualified leads not called yet."],
     ["missing", "Missing info", (l) => l.lead_status === "Missing Info" && l.call_status === "New", "Not called yet, still missing some info."],
@@ -139,8 +141,12 @@
   }
 
   async function tabView(tab) {
-    const { data: leads, error } = await sb.from("leads").select("*").order("follow_up_date", { ascending: true, nullsFirst: false });
-    if (error) return fail(error);
+    const [{ data: leads, error }, { data: dnc, error: e2 }] = await Promise.all([
+      sb.from("leads").select("*").order("follow_up_date", { ascending: true, nullsFirst: false }),
+      sb.from("activities").select("lead_id").eq("outcome", "Asked not to call")
+    ]);
+    if (error || e2) return fail(error || e2);
+    dncIds = new Set((dnc || []).map((a) => String(a.lead_id)));
     drawTab(leads, tab);
   }
 
@@ -153,8 +159,8 @@
       <h2 class="h">${label} <span class="muted">(${rows.length})</span></h2>
       <p class="muted small tab-hint">${hint}</p>
       ${tab === "called" ? `
-        <h3 class="sub-h">Follow up <span class="muted">(${rows.filter(isFollow).length})</span></h3>
-        ${tabList(rows.filter(isFollow), "called", "No follow-ups.")}
+        <h3 class="sub-h">Follow up <span class="muted">(${rows.filter((l) => isFollow(l) && !isDnc(l)).length})</span></h3>
+        ${tabList(rows.filter((l) => isFollow(l) && !isDnc(l)), "called", "No follow-ups.")}
         <h3 class="sub-h">Called <span class="muted">(${rows.filter((l) => !isFollow(l) && !isDnc(l)).length})</span></h3>
         ${tabList(rows.filter((l) => !isFollow(l) && !isDnc(l)), "called", "Nothing here yet.")}
         <h3 class="sub-h">Do not call <span class="muted">(${rows.filter(isDnc).length})</span></h3>
