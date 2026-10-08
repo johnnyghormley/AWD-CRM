@@ -454,34 +454,10 @@
       const t = document.getElementById("pay-text");
       if (t) t.onclick = async (e) => { e.preventDefault(); await logSent("Text"); location.href = `sms:${tel(phones[0][0])}?&body=${encodeURIComponent(msg())}`; };
       const m = document.getElementById("pay-email");
-      // Opens a ready-to-send Gmail draft from the AWD Gmail account (mailto: links depend on a desktop mail app, which isn't set up).
-      if (m) m.onclick = async (e) => {
+      // Branded email: preview, then copy + open a Gmail draft from the AWD account (payemail.js).
+      if (m) m.onclick = (e) => {
         e.preventDefault();
-        const p = pkg();
-        const body = [
-          `Hi ${first},`,
-          "",
-          "Thanks for choosing Affordable Web Designs! Here's your secure payment link:",
-          "",
-          p.url,
-          "",
-          `WHAT YOU'RE GETTING: ${p.label}`,
-          ...(p.lines || [p.detail]).map((x) => "  • " + x),
-          "",
-          "You'll pay by card on Stripe's secure checkout page and get a receipt by email." + (p.monthly ? " You can cancel the monthly plan anytime." : ""),
-          "",
-          "WHAT HAPPENS NEXT: " + (p.monthly ? "once your payment goes through, I'll get your website live and send you the link." : "once your payment goes through, I'll send you your finished website and everything you need to run it."),
-          "",
-          "Questions? Call or text me at 832-508-0059.",
-          "",
-          "Johnny Ghormley",
-          "Affordable Web Designs",
-          "affordablewebdesigns.vercel.app",
-        ].join("\n");
-        const subject = `Your ${usable(l.business_name) ? l.business_name + " " : ""}website: secure payment link`;
-        const url = "https://mail.google.com/mail/?" + new URLSearchParams({ authuser: "affordablewebdesignsawd@gmail.com", view: "cm", fs: "1", to: l.owner_email, su: subject, body }).toString();
-        window.open(url, "_blank", "noopener");
-        await logSent("Email");
+        window.AWDPayEmail({ to: l.owner_email, first, business: usable(l.business_name) ? l.business_name : "", pkg: pkg(), onSent: () => logSent("Email") });
       };
     }
 
