@@ -4,24 +4,44 @@ window.AWD_PAYMENT_LINKS = [
     "key": "new_website",
     "label": "New Website",
     "detail": "$225 today ($200 site + $25 web address setup), then $50/month starting next month",
-    "url": "https://buy.stripe.com/5kQ28s8854xnfEJcbJcV200"
+    "url": "https://buy.stripe.com/5kQ28s8854xnfEJcbJcV200",
+    "monthly": true,
+    "lines": [
+      "$225 today ($200 website + $25 web address setup)",
+      "$50/month starting next month for hosting, updates and support"
+    ]
   },
   {
     "key": "website_upgrade",
     "label": "Website Upgrade",
     "detail": "$200 today, then $50/month starting next month (keeps their web address)",
-    "url": "https://buy.stripe.com/9B614o9c95BrgIN1x5cV201"
+    "url": "https://buy.stripe.com/9B614o9c95BrgIN1x5cV201",
+    "monthly": true,
+    "lines": [
+      "$200 today for your new website (you keep your same web address)",
+      "$50/month starting next month for hosting, updates and support"
+    ]
   },
   {
     "key": "website_only",
     "label": "Website Only",
     "detail": "$200 one time, no monthly fee (they run the site)",
-    "url": "https://buy.stripe.com/bJe6oIcolbZP1NT8ZxcV202"
+    "url": "https://buy.stripe.com/bJe6oIcolbZP1NT8ZxcV202",
+    "monthly": false,
+    "lines": [
+      "$200 one time for your website",
+      "No monthly fee: I hand the finished site over to you"
+    ]
   },
   {
     "key": "website_only_domain",
     "label": "Website Only + web address",
     "detail": "$225 one time ($200 site + $25 web address setup), no monthly fee",
-    "url": "https://buy.stripe.com/9B6fZi741aVL9glfnVcV203"
+    "url": "https://buy.stripe.com/9B6fZi741aVL9glfnVcV203",
+    "monthly": false,
+    "lines": [
+      "$225 one time ($200 website + $25 web address setup)",
+      "No monthly fee: I hand the finished site over to you"
+    ]
   }
 ];
