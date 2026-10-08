@@ -394,7 +394,7 @@
           <select id="pay-pkg" aria-label="Package">${window.AWD_PAYMENT_LINKS.map((p) => `<option value="${p.key}" ${p.key === (l.list === "B" ? "website_upgrade" : "new_website") ? "selected" : ""}>${esc(p.label)}</option>`).join("")}</select>
           <button type="button" class="btn" id="pay-copy">Copy link</button>
           ${usable(phones[0] && phones[0][0]) ? `<a class="btn ghost" id="pay-text" href="#">Text it</a>` : ""}
-          ${usable(l.owner_email) && l.owner_email_status !== "Inferred" ? `<a class="btn ghost" id="pay-email" href="#">Email it</a>` : ""}
+          ${usable(l.owner_email) && l.owner_email_status !== "Inferred" ? `<a class="btn ghost" id="pay-email" href="#">Email it (Gmail)</a>` : ""}
         </div>
         <p class="muted small" id="pay-detail"></p>
         <p class="muted small">They enter their card on Stripe's secure page. You never see the card number.</p>
@@ -444,7 +444,7 @@
       const msg = () => `Hi ${first}, it's Johnny with Affordable Web Designs. Here's the secure link to get your website going (${pkg().label}: ${pkg().detail}): ${pkg().url}`;
       const showDetail = () => { document.getElementById("pay-detail").textContent = pkg().detail; };
       const logSent = async (how) => {
-        await sb.from("activities").insert({ lead_id: id, kind: how === "Email" ? "Email" : how === "Text" ? "Text" : "Note", note: `Payment link sent (${how}): ${pkg().label}, ${pkg().detail}` });
+        await sb.from("activities").insert({ lead_id: id, kind: how === "Email" ? "Email" : how === "Text" ? "Text" : "Note", note: `Payment link ${how === "Copied" ? "copied" : how === "Email" ? "opened in Gmail to send" : "opened in a text to send"}: ${pkg().label}, ${pkg().detail}` });
       };
       payBox.onchange = showDetail; showDetail();
       document.getElementById("pay-copy").onclick = async () => {
@@ -454,7 +454,13 @@
       const t = document.getElementById("pay-text");
       if (t) t.onclick = async (e) => { e.preventDefault(); await logSent("Text"); location.href = `sms:${tel(phones[0][0])}?&body=${encodeURIComponent(msg())}`; };
       const m = document.getElementById("pay-email");
-      if (m) m.onclick = async (e) => { e.preventDefault(); await logSent("Email"); location.href = `mailto:${l.owner_email}?subject=${encodeURIComponent("Your website: secure payment link")}&body=${encodeURIComponent(msg())}`; };
+      // Opens a ready-to-send Gmail draft from the AWD Gmail account (mailto: links depend on a desktop mail app, which isn't set up).
+      if (m) m.onclick = async (e) => {
+        e.preventDefault();
+        const url = "https://mail.google.com/mail/?" + new URLSearchParams({ authuser: "affordablewebdesignsawd@gmail.com", view: "cm", fs: "1", to: l.owner_email, su: "Your website: secure payment link", body: msg() }).toString();
+        window.open(url, "_blank", "noopener");
+        await logSent("Email");
+      };
     }
 
     document.getElementById("edit").onsubmit = async (e) => {
