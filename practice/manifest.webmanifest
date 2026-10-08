@@ -1,0 +1,16 @@
+{
+  "name": "Robert - Cold Call Coach",
+  "short_name": "Robert",
+  "description": "Practice cold calls out loud for Affordable Web Designs and I Know Warehouses.",
+  "id": "/practice/",
+  "start_url": "/practice/",
+  "scope": "/practice/",
+  "display": "standalone",
+  "background_color": "#16202B",
+  "theme_color": "#16202B",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
