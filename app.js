@@ -382,6 +382,12 @@
         <div class="actions">
           ${phones.map(([p, t]) => `<a class="btn" href="tel:${esc(tel(p))}">📞 ${esc(t)} · ${esc(p)}</a>`).join("")}
           ${usable(l.owner_email) ? `<a class="btn ghost" href="mailto:${esc(l.owner_email)}">✉ ${esc(l.owner_email)}${l.owner_email_status === "Inferred" ? " (inferred)" : ""}</a>` : ""}
+          ${!usable(l.owner_email) || l.owner_email_status === "Inferred" ? `<button type="button" class="btn ghost" id="add-email-btn">＋ ${usable(l.owner_email) ? "Add confirmed email" : "Add email"}</button>
+          <form id="add-email" class="add-email" hidden>
+            <input id="add-email-input" type="email" required placeholder="name@business.com" autocomplete="off" aria-label="Email address">
+            <button class="btn">Save</button>
+            <button type="button" class="btn ghost" id="add-email-cancel">Cancel</button>
+          </form>` : ""}
           ${usable(l.website) ? `<a class="btn ghost" target="_blank" rel="noopener" href="${esc(/^https?:/i.test(l.website) ? l.website : "https://" + l.website)}">🌐 Website</a>` : ""}
         </div>
         ${usable(l.rapport_note) ? `<p class="rapport"><b>Opener:</b> ${esc(l.rapport_note)}</p>` : ""}
@@ -394,7 +400,7 @@
           <select id="pay-pkg" aria-label="Package">${window.AWD_PAYMENT_LINKS.map((p) => `<option value="${p.key}" ${p.key === (l.list === "B" ? "website_upgrade" : "new_website") ? "selected" : ""}>${esc(p.label)}</option>`).join("")}</select>
           <button type="button" class="btn" id="pay-copy">Copy link</button>
           ${usable(phones[0] && phones[0][0]) ? `<a class="btn ghost" id="pay-text" href="#">Text it</a>` : ""}
-          ${usable(l.owner_email) && l.owner_email_status !== "Inferred" ? `<a class="btn ghost" id="pay-email" href="#">Email it (Gmail)</a>` : ""}
+          ${usable(l.owner_email) && l.owner_email_status !== "Inferred" ? `<a class="btn ghost" id="pay-email" href="#">Email it (Gmail)</a>` : `<button type="button" class="btn ghost" id="pay-add-email">＋ Add email to send it</button>`}
         </div>
         <p class="muted small" id="pay-detail"></p>
         <p class="muted small">They enter their card on Stripe's secure page. You never see the card number.</p>
@@ -436,6 +442,25 @@
       if (e2) return fail(e2);
       toast("Saved"); leadView(id);
     };
+    // ---------- add / correct the owner's email ----------
+    const addBtn = document.getElementById("add-email-btn"), addForm = document.getElementById("add-email");
+    if (addBtn && addForm) {
+      const openAdd = () => { addBtn.hidden = true; addForm.hidden = false; const i = document.getElementById("add-email-input"); i.focus(); addForm.scrollIntoView({ block: "center", behavior: "smooth" }); };
+      addBtn.onclick = openAdd;
+      const pa = document.getElementById("pay-add-email"); if (pa) pa.onclick = openAdd;
+      document.getElementById("add-email-cancel").onclick = () => { addForm.hidden = true; addBtn.hidden = false; };
+      addForm.onsubmit = async (e) => {
+        e.preventDefault();
+        const email = document.getElementById("add-email-input").value.trim().toLowerCase();
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return toast("That doesn't look like an email address", true);
+        const before = usable(l.owner_email) ? l.owner_email : "none";
+        const { error: e1 } = await sb.from("leads").update({ owner_email: email, owner_email_status: "Verified" }).eq("id", id);
+        if (e1) return fail(e1);
+        await sb.from("activities").insert({ lead_id: id, kind: "Note", note: `Email added by hand: ${email} (was: ${before})` });
+        toast("Email saved"); leadView(id);
+      };
+    }
+
     // ---------- payment link (Stripe) ----------
     const payBox = document.getElementById("pay-pkg");
     if (payBox) {

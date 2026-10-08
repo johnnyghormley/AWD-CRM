@@ -212,3 +212,7 @@ main > * { min-width: 0; }
 .pe-preview { overflow: auto; flex: 1; }
 .pe-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 18px 4px; border-top: 1px solid var(--line); }
 .pe-tip { margin: 6px 18px 14px; }
+
+/* Add email on the lead page */
+.add-email { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; width: 100%; }
+.add-email input { flex: 1 1 240px; min-width: 0; }
