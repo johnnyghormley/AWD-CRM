@@ -388,6 +388,18 @@
         ${usable(l.website_notes) ? `<p class="muted"><b>Website:</b> ${esc(l.website_status || "")} ${esc(l.website_notes)}</p>` : ""}
       </section>
 
+      ${(window.AWD_PAYMENT_LINKS || []).length ? `<section class="card pad pay">
+        <h3>💳 Send payment link</h3>
+        <div class="pay-row">
+          <select id="pay-pkg" aria-label="Package">${window.AWD_PAYMENT_LINKS.map((p) => `<option value="${p.key}" ${p.key === (l.list === "B" ? "website_upgrade" : "new_website") ? "selected" : ""}>${esc(p.label)}</option>`).join("")}</select>
+          <button type="button" class="btn" id="pay-copy">Copy link</button>
+          ${usable(phones[0] && phones[0][0]) ? `<a class="btn ghost" id="pay-text" href="#">Text it</a>` : ""}
+          ${usable(l.owner_email) && l.owner_email_status !== "Inferred" ? `<a class="btn ghost" id="pay-email" href="#">Email it</a>` : ""}
+        </div>
+        <p class="muted small" id="pay-detail"></p>
+        <p class="muted small">They enter their card on Stripe's secure page. You never see the card number.</p>
+      </section>` : ""}
+
       <form class="card pad" id="log">
         <h3>Log a call or note</h3>
         <div class="grid">
@@ -424,6 +436,27 @@
       if (e2) return fail(e2);
       toast("Saved"); leadView(id);
     };
+    // ---------- payment link (Stripe) ----------
+    const payBox = document.getElementById("pay-pkg");
+    if (payBox) {
+      const pkg = () => window.AWD_PAYMENT_LINKS.find((p) => p.key === payBox.value);
+      const first = usable(l.owner_name) ? l.owner_name.split(" ")[0].split("(")[0].trim() : "there";
+      const msg = () => `Hi ${first}, it's Johnny with Affordable Web Designs. Here's the secure link to get your website going (${pkg().label}: ${pkg().detail}): ${pkg().url}`;
+      const showDetail = () => { document.getElementById("pay-detail").textContent = pkg().detail; };
+      const logSent = async (how) => {
+        await sb.from("activities").insert({ lead_id: id, kind: how === "Email" ? "Email" : how === "Text" ? "Text" : "Note", note: `Payment link sent (${how}): ${pkg().label}, ${pkg().detail}` });
+      };
+      payBox.onchange = showDetail; showDetail();
+      document.getElementById("pay-copy").onclick = async () => {
+        try { await navigator.clipboard.writeText(pkg().url); toast("Payment link copied"); } catch (e) { prompt("Copy this link:", pkg().url); }
+        await logSent("Copied");
+      };
+      const t = document.getElementById("pay-text");
+      if (t) t.onclick = async (e) => { e.preventDefault(); await logSent("Text"); location.href = `sms:${tel(phones[0][0])}?&body=${encodeURIComponent(msg())}`; };
+      const m = document.getElementById("pay-email");
+      if (m) m.onclick = async (e) => { e.preventDefault(); await logSent("Email"); location.href = `mailto:${l.owner_email}?subject=${encodeURIComponent("Your website: secure payment link")}&body=${encodeURIComponent(msg())}`; };
+    }
+
     document.getElementById("edit").onsubmit = async (e) => {
       e.preventDefault();
       const { error: e3 } = await sb.from("leads").update(readForm(e.target)).eq("id", id);

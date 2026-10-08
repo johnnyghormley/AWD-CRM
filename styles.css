@@ -198,3 +198,9 @@ main > * { min-width: 0; }
 .script ul.check{list-style:none; padding-left:4px}
 .script ul.check li::before{content:"☐  "; color:#6B7280}
 .script hr{border:0; border-top:1px solid var(--line); margin:18px 0}
+
+/* Payment link box on the lead page */
+.pay h3 { margin: 0 0 10px; }
+.pay-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.pay-row select { flex: 1 1 220px; min-width: 0; }
+.pay .small { margin: 8px 0 0; }
