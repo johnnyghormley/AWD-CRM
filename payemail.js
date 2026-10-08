@@ -71,11 +71,12 @@
         <div class="pe-head"><b>Email preview</b><span class="muted small">To: ${h(to)} · Subject: ${h(subject)}</span></div>
         <div class="pe-preview">${html}</div>
         <div class="pe-actions">
-          <button type="button" class="btn" id="pe-go">Copy email &amp; open Gmail</button>
+          <button type="button" class="btn" id="pe-copy">1 · Copy email</button>
+          <button type="button" class="btn ghost" id="pe-go" disabled>2 · Open Gmail</button>
           <button type="button" class="btn ghost" id="pe-plain">Plain text instead</button>
           <button type="button" class="btn ghost" id="pe-cancel">Cancel</button>
         </div>
-        <p class="muted small pe-tip">Gmail opens with the address and subject filled in. Click in the message area, press <b>Ctrl+V</b> to paste the email, then <b>Send</b>.</p>
+        <p class="muted small pe-tip" id="pe-tip">Step 1 copies the designed email. Step 2 opens Gmail with the address and subject filled in. Click in the message area, press <b>Ctrl+V</b>, then <b>Send</b>.</p>
       </div>`;
     document.body.appendChild(wrap);
     const close = () => wrap.remove();
@@ -85,17 +86,37 @@
       window.open(gmailUrl(to, subject, text), "_blank", "noopener");
       onSent && onSent(); close();
     };
-    wrap.querySelector("#pe-go").onclick = () => {
-      let copied;
+    const copyBtn = wrap.querySelector("#pe-copy"), goBtn = wrap.querySelector("#pe-go"), tip = wrap.querySelector("#pe-tip");
+    // Copy the rendered preview as rich text. Selecting the real element + execCommand("copy") is the most
+    // reliable way to get formatting (and the logo/button) into Gmail; ClipboardItem is the fallback.
+    copyBtn.onclick = async () => {
+      let ok = false;
       try {
-        copied = navigator.clipboard.write([new ClipboardItem({
-          "text/html": new Blob([html], { type: "text/html" }),
-          "text/plain": new Blob([text], { type: "text/plain" }),
-        })]);
-      } catch (e) { copied = Promise.reject(e); }
-      const win = window.open(gmailUrl(to, subject, ""), "_blank", "noopener");
-      copied.then(() => { onSent && onSent(); close(); })
-        .catch(() => { if (win) win.close?.(); window.open(gmailUrl(to, subject, text), "_blank", "noopener"); onSent && onSent(); close(); });
+        const node = wrap.querySelector(".pe-preview");
+        const range = document.createRange(); range.selectNodeContents(node);
+        const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
+        ok = document.execCommand("copy");
+        sel.removeAllRanges();
+      } catch (e) { ok = false; }
+      if (!ok) {
+        try {
+          await navigator.clipboard.write([new ClipboardItem({
+            "text/html": new Blob([html], { type: "text/html" }),
+            "text/plain": new Blob([text], { type: "text/plain" }),
+          })]);
+          ok = true;
+        } catch (e) { ok = false; }
+      }
+      if (ok) {
+        copyBtn.textContent = "✓ Copied"; goBtn.disabled = false; goBtn.classList.remove("ghost"); goBtn.focus();
+        tip.innerHTML = "Copied. Now click <b>2 · Open Gmail</b>, click in the message area, press <b>Ctrl+V</b>, then <b>Send</b>.";
+      } else {
+        tip.textContent = "Couldn't copy on this device. Use \"Plain text instead\".";
+      }
+    };
+    goBtn.onclick = () => {
+      window.open(gmailUrl(to, subject, ""), "_blank", "noopener");
+      onSent && onSent(); close();
     };
   };
 })();
