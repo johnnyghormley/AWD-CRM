@@ -240,6 +240,30 @@
     });
   }
 
+  // ---------- Script: both AWD call scripts (generated from the vault by sync/build_scripts.py) ----------
+  function scriptView() {
+    const S = window.AWD_SCRIPTS || {};
+    let which = "A";
+    try { which = localStorage.getItem("awd-script-tab") || "A"; } catch (e) {}
+    const draw = () => {
+      app.innerHTML = `
+        <div class="script-head">
+          <h2 class="h">Call script</h2>
+          <div class="script-tabs" role="tablist">
+            <button role="tab" class="${which === "A" ? "on" : ""}" data-s="A" aria-selected="${which === "A"}">No website <span>List A</span></button>
+            <button role="tab" class="${which === "B" ? "on" : ""}" data-s="B" aria-selected="${which === "B"}">Has a website <span>List B</span></button>
+          </div>
+        </div>
+        <article class="card pad script">${S[which] || '<p class="muted">Script not loaded.</p>'}</article>`;
+      app.querySelectorAll(".script-tabs button").forEach((b) => b.onclick = () => {
+        which = b.dataset.s;
+        try { localStorage.setItem("awd-script-tab", which); } catch (e) {}
+        draw();
+      });
+    };
+    draw();
+  }
+
   async function todayView() {
     const { data: leads, error } = await sb.from("leads").select("*").order("follow_up_date", { ascending: true, nullsFirst: false });
     if (error) return fail(error);
@@ -474,6 +498,7 @@
       if (h === "/") await todayView();
       else if (h === "/inquired") await inquiredView();
       else if (h === "/ready" || h === "/missing" || h === "/called") await tabView(h.slice(1));
+      else if (h === "/script") scriptView();
       else if (h === "/leads") await leadsView();
       else if (h === "/new") newView();
       else if (h === "/import") importView();

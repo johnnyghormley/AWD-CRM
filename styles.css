@@ -180,3 +180,21 @@ main > * { min-width: 0; }
 .trow.inq .trow-extra { display: flex; gap: 6px; flex-wrap: wrap; }
 .inq-msg { display: block; margin-top: 4px; font-size: 13px; color: var(--c); font-style: italic; overflow-wrap: anywhere; }
 .trow.inq .trow-main { flex: 1 1 260px; }
+
+/* Script tab */
+.script-head{display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:12px}
+.script-head .h{margin:0}
+.script-tabs{display:inline-flex; background:#fff; border:1px solid var(--line); border-radius:10px; padding:3px; gap:3px}
+.script-tabs button{border:0; background:transparent; padding:8px 14px; border-radius:8px; font:inherit; font-weight:600; cursor:pointer; color:var(--c)}
+.script-tabs button span{font-weight:500; font-size:12px; opacity:.6; margin-left:4px}
+.script-tabs button.on{background:var(--y)}
+.script{max-width:820px; line-height:1.6}
+.script h3{margin:26px 0 8px; font-size:17px}
+.script h3:first-of-type{margin-top:12px}
+.script p{margin:8px 0}
+.script .say{margin:10px 0; padding:12px 14px; background:#FEF9C3; border-left:4px solid var(--y); border-radius:0 10px 10px 0; font-size:16px}
+.script ul{margin:8px 0; padding-left:20px}
+.script li{margin:5px 0}
+.script ul.check{list-style:none; padding-left:4px}
+.script ul.check li::before{content:"☐  "; color:#6B7280}
+.script hr{border:0; border-top:1px solid var(--line); margin:18px 0}
