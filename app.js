@@ -429,7 +429,7 @@
             ? `<button type="button" class="btn ghost" id="requal-btn">↩ Restore lead</button>`
             : `<button type="button" class="btn ghost" id="dq-btn">🚫 Disqualify</button>
           <form id="dq-form" class="add-email" hidden>
-            <select id="dq-reason" aria-label="Reason">${DQ_REASONS.map((r) => `<option>${r}</option>`).join("")}</select>
+            <select id="dq-reason" required aria-label="Reason"><option value="">Reason (required)…</option>${DQ_REASONS.map((r) => `<option>${r}</option>`).join("")}</select>
             <input id="dq-note" placeholder="Details (optional)" autocomplete="off" aria-label="Details">
             <button class="btn danger">Disqualify</button>
             <button type="button" class="btn ghost" id="dq-cancel">Cancel</button>
@@ -492,10 +492,15 @@
     if (dqBtn) {
       dqBtn.onclick = () => { dqBtn.hidden = true; dqForm.hidden = false; dqForm.scrollIntoView({ block: "center", behavior: "smooth" }); };
       document.getElementById("dq-cancel").onclick = () => { dqForm.hidden = true; dqBtn.hidden = false; };
+      const dqSel = document.getElementById("dq-reason"), dqNote = document.getElementById("dq-note");
+      // "Other" needs the details typed in, so every disqualify has a real reason.
+      dqSel.onchange = () => { dqNote.required = dqSel.value === "Other"; dqNote.placeholder = dqNote.required ? "Details (required for Other)" : "Details (optional)"; };
       dqForm.onsubmit = async (e) => {
         e.preventDefault();
-        const note = document.getElementById("dq-note").value.trim();
-        const reason = [document.getElementById("dq-reason").value, note].filter(Boolean).join(" · ");
+        const note = dqNote.value.trim();
+        if (!dqSel.value) return toast("Pick a reason first", true);
+        if (dqSel.value === "Other" && !note) { dqNote.focus(); return toast("Type the reason", true); }
+        const reason = [dqSel.value, note].filter(Boolean).join(" · ");
         if (await disqualify(l, reason)) leadView(id);
       };
     }
