@@ -230,6 +230,7 @@
         <span class="trow-name">${esc(q.business)}</span>
         <span class="trow-contact">${esc(q.name)}${usable(q.trade) ? " · " + esc(q.trade) : ""}</span>
         <span class="muted small">${fmtTime(q.created_at)}${usable(q.email) ? ` · <a href="mailto:${esc(q.email)}">${esc(q.email)}</a>` : ""}${site ? ` · <a href="${esc(site)}" target="_blank" rel="noopener">${esc(q.website)}</a>` : " · No website"}</span>
+        ${usable(q.source) ? `<span class="muted small">Heard about us: <b>${esc(q.source)}</b></span>` : ""}
         ${usable(q.message) ? `<span class="inq-msg">“${esc(q.message)}”</span>` : ""}
       </div>
       <div class="trow-extra">${btns}</div>
@@ -255,11 +256,11 @@
         business_name: q.business, owner_name: q.name, owner_phone: q.phone, owner_phone_type: "Direct",
         owner_email: q.email || null, owner_email_status: q.email ? "Verified" : null, trade: q.trade || null,
         website: hasSite ? q.website : null, list: hasSite ? "B" : "A", website_status: hasSite ? null : "None",
-        lead_status: "Qualified", call_status: "New", sources: "Website inquiry form " + q.created_at.slice(0, 10)
+        lead_status: "Qualified", call_status: "New", sources: "Website inquiry form " + q.created_at.slice(0, 10) + (q.source ? " (heard about us: " + q.source + ")" : "")
       };
       const { data, error: e1 } = await sb.from("leads").insert(lead).select("id").single();
       if (e1) { b.disabled = false; return fail(e1); }
-      await sb.from("activities").insert({ lead_id: data.id, kind: "Note", note: `Inquired through the website form on ${fmtTime(q.created_at)}.${q.message ? "\nMessage: " + q.message : ""}` });
+      await sb.from("activities").insert({ lead_id: data.id, kind: "Note", note: `Inquired through the website form on ${fmtTime(q.created_at)}.${q.source ? "\nHeard about us: " + q.source : ""}${q.message ? "\nMessage: " + q.message : ""}` });
       const { error: e2 } = await sb.from("inquiries").update({ status: "Added to leads", lead_id: data.id }).eq("id", q.id);
       if (e2) return fail(e2);
       toast(`${q.business} added to leads`); location.hash = "#/lead/" + data.id;

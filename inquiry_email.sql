@@ -1,5 +1,5 @@
 -- AWD CRM: email Johnny (johnny.ghormley@gmail.com) every time the website's "Get your free design" form
--- saves a new inquiry. Added 2026-10-09.
+-- saves a new inquiry. Added 2026-10-09. Needs inquiry_source.sql run first (the `source` column).
 --
 -- How it works: a trigger on public.inquiries calls the Resend email API through pg_net (Supabase's built-in
 -- HTTP extension). It runs inside the database, so it works no matter what the visitor's browser does.
@@ -37,6 +37,7 @@ begin
     '<tr><td style="padding:6px 12px 6px 0;color:#6B7280">Phone</td><td style="padding:6px 0"><a href="tel:' || regexp_replace(coalesce(new.phone, ''), '[^0-9+]', '', 'g') || '">' || awd_html(new.phone) || '</a></td></tr>' ||
     '<tr><td style="padding:6px 12px 6px 0;color:#6B7280">Type of business</td><td style="padding:6px 0">' || coalesce(nullif(awd_html(new.trade), ''), '—') || '</td></tr>' ||
     '<tr><td style="padding:6px 12px 6px 0;color:#6B7280">Email</td><td style="padding:6px 0">' || coalesce(nullif(awd_html(new.email), ''), '—') || '</td></tr>' ||
+    '<tr><td style="padding:6px 12px 6px 0;color:#6B7280">Heard about us</td><td style="padding:6px 0">' || coalesce(nullif(awd_html(new.source), ''), '—') || '</td></tr>' ||
     '<tr><td style="padding:6px 12px 6px 0;color:#6B7280">Current website</td><td style="padding:6px 0">' || coalesce(nullif(awd_html(new.website), ''), 'none') || '</td></tr>' ||
     '<tr><td style="padding:6px 12px 6px 0;color:#6B7280;vertical-align:top">Message</td><td style="padding:6px 0">' || coalesce(nullif(awd_html(new.message), ''), '—') || '</td></tr>';
 
