@@ -9,9 +9,11 @@
   }
   const sb = supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
 
-  const CALL_STATUSES = ["New", "Called", "Callback", "Design Sent", "Follow Up", "Won", "Not Interested", "Do Not Call"];
+  const CALL_STATUSES = ["New", "Called", "Callback", "Design Sent", "Follow Up", "Won", "Not Interested", "Do Not Call", "Disqualified"];
   const LEAD_STATUSES = ["Qualified", "Missing Info"];
+  const CLOSED = ["Won", "Not Interested", "Do Not Call", "Disqualified"];
   const KINDS = ["Call", "Text", "Email", "Design sent", "Note"];
+  const DQ_REASONS = ["Already has a good website", "Out of business", "Outside our area", "Commercial only, not residential", "Too big / has a marketing team", "Can't reach the owner", "Duplicate", "Other"];
   const OUTCOMES = ["", "No answer", "Voicemail", "Talked", "Interested", "Wants design", "Not interested", "Wrong number", "Asked not to call"];
 
   // Columns in Abby's CSVs → database fields
@@ -76,7 +78,7 @@
   // ---------- views ----------
   function leadRow(l) {
     const phone = usable(l.owner_phone) ? l.owner_phone : l.business_phone;
-    const overdue = l.follow_up_date && l.follow_up_date < today() && !["Won", "Not Interested", "Do Not Call"].includes(l.call_status);
+    const overdue = l.follow_up_date && l.follow_up_date < today() && !CLOSED.includes(l.call_status);
     return `<a class="row" href="#/lead/${l.id}">
       <div class="row-main">
         <b>${esc(l.business_name)}</b>
@@ -110,7 +112,7 @@
     </div>`;
   }
 
-  // ---------- Top-bar tabs: Ready / Missing info / Called (Follow up + Called lists) ----------
+  // ---------- Top-bar tabs: Ready / Missing info / Called (Follow up + Called lists) / Disqualified ----------
   const FOLLOW_STATUSES = ["Follow Up", "Callback"];
   const isFollow = (l) => FOLLOW_STATUSES.includes(l.call_status);
   // Do not call = a logged call/note with outcome "Asked not to call" (or the lead's status set to Do Not Call).
@@ -119,7 +121,8 @@
   const TABS = [
     ["ready", "Ready", (l) => l.lead_status !== "Missing Info" && l.call_status === "New", "Qualified leads not called yet."],
     ["missing", "Missing info", (l) => l.lead_status === "Missing Info" && l.call_status === "New", "Not called yet, still missing some info."],
-    ["called", "Called", (l) => l.call_status !== "New", "Everyone you've called. Check Follow up to move a lead into the Follow up list."]
+    ["called", "Called", (l) => l.call_status !== "New" && l.call_status !== "Disqualified", "Everyone you've called. Check Follow up to move a lead into the Follow up list."],
+    ["disqualified", "Disqualified", (l) => l.call_status === "Disqualified", "Leads that aren't a fit. They're kept out of every other list. Tap Restore to put one back in Ready."]
   ];
 
   // Show each tab's count next to its link in the top bar.
@@ -130,7 +133,13 @@
     });
   }
 
+  // Disqualify reason = the newest "Disqualified: ..." note on the lead.
+  let dqReasons = new Map();
   function tabRow(l, tab) {
+    if (tab === "disqualified") {
+      const why = dqReasons.get(String(l.id));
+      return todayRow(l, false, `<div class="trow-extra">${why ? `<span class="dq-why">${esc(why)}</span>` : ""}<button type="button" class="btn ghost small" data-restore="${l.id}">↩ Restore</button></div>`);
+    }
     const status = tab === "called" ? `<span class="pill ${statusClass(l.call_status)}">${esc(l.call_status)}</span>` : "";
     const box = tab === "called" && !isDnc(l) ? `<label class="fu-check"><input type="checkbox" data-id="${l.id}" ${isFollow(l) ? "checked" : ""}>Follow up</label>` : "";
     return todayRow(l, tab === "called" && !!l.follow_up_date, `<div class="trow-extra">${status}${box}</div>`);
@@ -140,13 +149,34 @@
     return `<div class="tlist">${rows.map((l) => tabRow(l, tab)).join("") || `<p class="muted pad">${empty}</p>`}</div>`;
   }
 
+  async function disqualify(l, reason) {
+    const from = l.call_status;
+    const { error: e1 } = await sb.from("leads").update({ call_status: "Disqualified", follow_up_date: null }).eq("id", l.id);
+    if (e1) { fail(e1); return false; }
+    await sb.from("activities").insert({ lead_id: l.id, kind: "Note", note: `Disqualified: ${reason || "no reason given"}\nStatus: ${from} → Disqualified` });
+    l.call_status = "Disqualified"; l.follow_up_date = null;
+    toast(`${l.business_name} disqualified`);
+    return true;
+  }
+  async function requalify(l) {
+    const { error: e1 } = await sb.from("leads").update({ call_status: "New" }).eq("id", l.id);
+    if (e1) { fail(e1); return false; }
+    await sb.from("activities").insert({ lead_id: l.id, kind: "Note", note: "Restored from Disqualified\nStatus: Disqualified → New" });
+    l.call_status = "New";
+    toast(`${l.business_name} restored`);
+    return true;
+  }
+
   async function tabView(tab) {
-    const [{ data: leads, error }, { data: dnc, error: e2 }] = await Promise.all([
+    const [{ data: leads, error }, { data: dnc, error: e2 }, { data: dq }] = await Promise.all([
       sb.from("leads").select("*").order("follow_up_date", { ascending: true, nullsFirst: false }),
-      sb.from("activities").select("lead_id").eq("outcome", "Asked not to call")
+      sb.from("activities").select("lead_id").eq("outcome", "Asked not to call"),
+      sb.from("activities").select("lead_id, note").like("note", "Disqualified:%").order("created_at", { ascending: false })
     ]);
     if (error || e2) return fail(error || e2);
     dncIds = new Set((dnc || []).map((a) => String(a.lead_id)));
+    dqReasons = new Map();
+    (dq || []).forEach((a) => { if (!dqReasons.has(String(a.lead_id))) dqReasons.set(String(a.lead_id), a.note.split("\n")[0].replace(/^Disqualified:\s*/, "")); });
     drawTab(leads, tab);
   }
 
@@ -165,8 +195,14 @@
         ${tabList(rows.filter((l) => !isFollow(l) && !isDnc(l)), "called", "Nothing here yet.")}
         <h3 class="sub-h">Do not call <span class="muted">(${rows.filter(isDnc).length})</span></h3>
         ${tabList(rows.filter(isDnc), "called", "No one on the do-not-call list.")}`
-      : tabList(rows, tab, "Nothing here yet.")}`;
-    el.querySelectorAll(".trow").forEach((r) => r.addEventListener("click", (e) => { if (!e.target.closest("a, label, input")) location.hash = r.dataset.href; }));
+      : tabList(rows, tab, tab === "disqualified" ? "No disqualified leads. Use 🚫 Disqualify on a lead's page." : "Nothing here yet.")}`;
+    el.querySelectorAll(".trow").forEach((r) => r.addEventListener("click", (e) => { if (!e.target.closest("a, label, input, button")) location.hash = r.dataset.href; }));
+    el.querySelectorAll("[data-restore]").forEach((b) => b.onclick = async () => {
+      const l = leads.find((x) => String(x.id) === b.dataset.restore);
+      b.disabled = true;
+      if (!(await requalify(l))) { b.disabled = false; return; }
+      drawTab(leads, tab);
+    });
     el.querySelectorAll(".fu-check input").forEach((cb) => cb.onchange = async () => {
       const l = leads.find((x) => String(x.id) === cb.dataset.id);
       const from = l.call_status, to = cb.checked ? "Follow Up" : "Called";
@@ -267,7 +303,7 @@
   async function todayView() {
     const { data: leads, error } = await sb.from("leads").select("*").order("follow_up_date", { ascending: true, nullsFirst: false });
     if (error) return fail(error);
-    const open = (l) => !["Won", "Not Interested", "Do Not Call"].includes(l.call_status);
+    const open = (l) => !CLOSED.includes(l.call_status);
     const due = leads.filter((l) => open(l) && l.follow_up_date && l.follow_up_date <= today());
     const fresh = leads.filter((l) => l.call_status === "New");
     const count = (s) => leads.filter((l) => l.call_status === s).length;
@@ -389,6 +425,15 @@
             <button type="button" class="btn ghost" id="add-email-cancel">Cancel</button>
           </form>` : ""}
           ${usable(l.website) ? `<a class="btn ghost" target="_blank" rel="noopener" href="${esc(/^https?:/i.test(l.website) ? l.website : "https://" + l.website)}">🌐 Website</a>` : ""}
+          ${l.call_status === "Disqualified"
+            ? `<button type="button" class="btn ghost" id="requal-btn">↩ Restore lead</button>`
+            : `<button type="button" class="btn ghost" id="dq-btn">🚫 Disqualify</button>
+          <form id="dq-form" class="add-email" hidden>
+            <select id="dq-reason" aria-label="Reason">${DQ_REASONS.map((r) => `<option>${r}</option>`).join("")}</select>
+            <input id="dq-note" placeholder="Details (optional)" autocomplete="off" aria-label="Details">
+            <button class="btn danger">Disqualify</button>
+            <button type="button" class="btn ghost" id="dq-cancel">Cancel</button>
+          </form>`}
         </div>
         ${usable(l.rapport_note) ? `<p class="rapport"><b>Opener:</b> ${esc(l.rapport_note)}</p>` : ""}
         ${usable(l.website_notes) ? `<p class="muted"><b>Website:</b> ${esc(l.website_status || "")} ${esc(l.website_notes)}</p>` : ""}
@@ -442,6 +487,21 @@
       if (e2) return fail(e2);
       toast("Saved"); leadView(id);
     };
+    // ---------- disqualify / restore ----------
+    const dqBtn = document.getElementById("dq-btn"), dqForm = document.getElementById("dq-form");
+    if (dqBtn) {
+      dqBtn.onclick = () => { dqBtn.hidden = true; dqForm.hidden = false; dqForm.scrollIntoView({ block: "center", behavior: "smooth" }); };
+      document.getElementById("dq-cancel").onclick = () => { dqForm.hidden = true; dqBtn.hidden = false; };
+      dqForm.onsubmit = async (e) => {
+        e.preventDefault();
+        const note = document.getElementById("dq-note").value.trim();
+        const reason = [document.getElementById("dq-reason").value, note].filter(Boolean).join(" · ");
+        if (await disqualify(l, reason)) leadView(id);
+      };
+    }
+    const rq = document.getElementById("requal-btn");
+    if (rq) rq.onclick = async () => { rq.disabled = true; if (await requalify(l)) leadView(id); else rq.disabled = false; };
+
     // ---------- add / correct the owner's email ----------
     const addBtn = document.getElementById("add-email-btn"), addForm = document.getElementById("add-email");
     if (addBtn && addForm) {
@@ -559,7 +619,7 @@
     try {
       if (h === "/") await todayView();
       else if (h === "/inquired") await inquiredView();
-      else if (h === "/ready" || h === "/missing" || h === "/called") await tabView(h.slice(1));
+      else if (["/ready", "/missing", "/called", "/disqualified"].includes(h)) await tabView(h.slice(1));
       else if (h === "/script") scriptView();
       else if (h === "/leads") await leadsView();
       else if (h === "/new") newView();

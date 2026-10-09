@@ -216,3 +216,8 @@ main > * { min-width: 0; }
 /* Add email on the lead page */
 .add-email { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; width: 100%; }
 .add-email input { flex: 1 1 240px; min-width: 0; }
+
+/* Disqualified */
+.st-disqualified { background: #FEE2E2; color: #991B1B; }
+.dq-why { font-size: 13px; color: #991B1B; max-width: 280px; text-align: right; }
+@media (max-width: 560px) { .dq-why { text-align: left; } }

@@ -20,7 +20,7 @@ window.AbbyRunner = (() => {
       qualified: leads.filter((l) => l.lead_status === "Qualified").length,
       missing: leads.filter((l) => l.lead_status === "Missing Info").length,
       fresh: by("New"), design: by("Design Sent"), won: by("Won"),
-      due: leads.filter((l) => l.follow_up_date && l.follow_up_date <= today && !["Won", "Not Interested", "Do Not Call"].includes(l.call_status)).length,
+      due: leads.filter((l) => l.follow_up_date && l.follow_up_date <= today && !["Won", "Not Interested", "Do Not Call", "Disqualified"].includes(l.call_status)).length,
       active: leads.some((l) => now - new Date(l.created_at) < DAY),
     };
   }
