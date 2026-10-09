@@ -221,3 +221,7 @@ main > * { min-width: 0; }
 .st-disqualified { background: #FEE2E2; color: #991B1B; }
 .dq-why { font-size: 13px; color: #991B1B; max-width: 280px; text-align: right; }
 @media (max-width: 560px) { .dq-why { text-align: left; } }
+
+/* Reload button, top left */
+.reload { display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border-radius: 10px; border: 1px solid rgba(250,204,21,.5); background: none; color: var(--y); cursor: pointer; flex: none; }
+.reload:hover, .reload:active { background: var(--y); color: var(--c); }

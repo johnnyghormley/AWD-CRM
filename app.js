@@ -13,7 +13,8 @@
   const LEAD_STATUSES = ["Qualified", "Missing Info"];
   const CLOSED = ["Won", "Not Interested", "Do Not Call", "Disqualified"];
   const KINDS = ["Call", "Text", "Email", "Design sent", "Note"];
-  const DQ_REASONS = ["Already has a good website", "Out of business", "Outside our area", "Commercial only, not residential", "Too big / has a marketing team", "Can't reach the owner", "Duplicate", "Other"];
+  const DNC_REASON = "Asked not to be called again";
+  const DQ_REASONS = [DNC_REASON, "Already has a good website", "Out of business", "Outside our area", "Commercial only, not residential", "Too big / has a marketing team", "Can't reach the owner", "Duplicate", "Other"];
   const OUTCOMES = ["", "No answer", "Voicemail", "Talked", "Interested", "Wants design", "Not interested", "Wrong number", "Asked not to call"];
 
   // Columns in Abby's CSVs → database fields
@@ -115,14 +116,14 @@
   // ---------- Top-bar tabs: Ready / Missing info / Called (Follow up + Called lists) / Disqualified ----------
   const FOLLOW_STATUSES = ["Follow Up", "Callback"];
   const isFollow = (l) => FOLLOW_STATUSES.includes(l.call_status);
-  // Do not call = a logged call/note with outcome "Asked not to call" (or the lead's status set to Do Not Call).
-  let dncIds = new Set();
-  const isDnc = (l) => dncIds.has(String(l.id)) || l.call_status === "Do Not Call";
+  // Disqualified = not a fit. A lead that asked not to be called again is disqualified automatically
+  // (logging the outcome "Asked not to call" or the status "Do Not Call" sets it to Disqualified).
+  const isDq = (l) => l.call_status === "Disqualified" || l.call_status === "Do Not Call";
   const TABS = [
     ["ready", "Ready", (l) => l.lead_status !== "Missing Info" && l.call_status === "New", "Qualified leads not called yet."],
     ["missing", "Missing info", (l) => l.lead_status === "Missing Info" && l.call_status === "New", "Not called yet, still missing some info."],
-    ["called", "Called", (l) => l.call_status !== "New" && l.call_status !== "Disqualified", "Everyone you've called. Check Follow up to move a lead into the Follow up list."],
-    ["disqualified", "Disqualified", (l) => l.call_status === "Disqualified", "Leads that aren't a fit. They're kept out of every other list. Tap Restore to put one back in Ready."]
+    ["called", "Called", (l) => l.call_status !== "New" && !isDq(l), "Everyone you've called. Check Follow up to move a lead into the Follow up list."],
+    ["disqualified", "Disqualified", isDq, "Leads that aren't a fit. They're kept out of every other list. Tap Restore to put one back in Ready."]
   ];
 
   // Show each tab's count next to its link in the top bar.
@@ -137,11 +138,11 @@
   let dqReasons = new Map();
   function tabRow(l, tab) {
     if (tab === "disqualified") {
-      const why = dqReasons.get(String(l.id));
+      const why = dqReasons.get(String(l.id)) || (l.call_status === "Do Not Call" ? DNC_REASON : "");
       return todayRow(l, false, `<div class="trow-extra">${why ? `<span class="dq-why">${esc(why)}</span>` : ""}<button type="button" class="btn ghost small" data-restore="${l.id}">↩ Restore</button></div>`);
     }
     const status = tab === "called" ? `<span class="pill ${statusClass(l.call_status)}">${esc(l.call_status)}</span>` : "";
-    const box = tab === "called" && !isDnc(l) ? `<label class="fu-check"><input type="checkbox" data-id="${l.id}" ${isFollow(l) ? "checked" : ""}>Follow up</label>` : "";
+    const box = tab === "called" ? `<label class="fu-check"><input type="checkbox" data-id="${l.id}" ${isFollow(l) ? "checked" : ""}>Follow up</label>` : "";
     return todayRow(l, tab === "called" && !!l.follow_up_date, `<div class="trow-extra">${status}${box}</div>`);
   }
 
@@ -168,13 +169,11 @@
   }
 
   async function tabView(tab) {
-    const [{ data: leads, error }, { data: dnc, error: e2 }, { data: dq }] = await Promise.all([
+    const [{ data: leads, error }, { data: dq, error: e2 }] = await Promise.all([
       sb.from("leads").select("*").order("follow_up_date", { ascending: true, nullsFirst: false }),
-      sb.from("activities").select("lead_id").eq("outcome", "Asked not to call"),
       sb.from("activities").select("lead_id, note").like("note", "Disqualified:%").order("created_at", { ascending: false })
     ]);
     if (error || e2) return fail(error || e2);
-    dncIds = new Set((dnc || []).map((a) => String(a.lead_id)));
     dqReasons = new Map();
     (dq || []).forEach((a) => { if (!dqReasons.has(String(a.lead_id))) dqReasons.set(String(a.lead_id), a.note.split("\n")[0].replace(/^Disqualified:\s*/, "")); });
     drawTab(leads, tab);
@@ -189,12 +188,10 @@
       <h2 class="h">${label} <span class="muted">(${rows.length})</span></h2>
       <p class="muted small tab-hint">${hint}</p>
       ${tab === "called" ? `
-        <h3 class="sub-h">Follow up <span class="muted">(${rows.filter((l) => isFollow(l) && !isDnc(l)).length})</span></h3>
-        ${tabList(rows.filter((l) => isFollow(l) && !isDnc(l)), "called", "No follow-ups.")}
-        <h3 class="sub-h">Called <span class="muted">(${rows.filter((l) => !isFollow(l) && !isDnc(l)).length})</span></h3>
-        ${tabList(rows.filter((l) => !isFollow(l) && !isDnc(l)), "called", "Nothing here yet.")}
-        <h3 class="sub-h">Do not call <span class="muted">(${rows.filter(isDnc).length})</span></h3>
-        ${tabList(rows.filter(isDnc), "called", "No one on the do-not-call list.")}`
+        <h3 class="sub-h">Follow up <span class="muted">(${rows.filter(isFollow).length})</span></h3>
+        ${tabList(rows.filter(isFollow), "called", "No follow-ups.")}
+        <h3 class="sub-h">Called <span class="muted">(${rows.filter((l) => !isFollow(l)).length})</span></h3>
+        ${tabList(rows.filter((l) => !isFollow(l)), "called", "Nothing here yet.")}`
       : tabList(rows, tab, tab === "disqualified" ? "No disqualified leads. Use 🚫 Disqualify on a lead's page." : "Nothing here yet.")}`;
     el.querySelectorAll(".trow").forEach((r) => r.addEventListener("click", (e) => { if (!e.target.closest("a, label, input, button")) location.hash = r.dataset.href; }));
     el.querySelectorAll("[data-restore]").forEach((b) => b.onclick = async () => {
@@ -475,9 +472,13 @@
     document.getElementById("log").onsubmit = async (e) => {
       e.preventDefault();
       const f = new FormData(e.target);
-      const note = f.get("note").trim(), outcome = f.get("outcome"), status = f.get("call_status"), fu = f.get("follow_up_date") || null;
+      const note = f.get("note").trim(), outcome = f.get("outcome");
+      let status = f.get("call_status"), fu = f.get("follow_up_date") || null;
+      // They asked not to be called again → disqualify the company (reason line first, so the Disqualified tab shows it).
+      const dnc = (outcome === "Asked not to call" || status === "Do Not Call") && l.call_status !== "Disqualified";
+      if (dnc) { status = "Disqualified"; fu = null; }
       const statusChanged = status !== l.call_status;
-      const parts = [note, statusChanged ? `Status: ${l.call_status} → ${status}` : ""].filter(Boolean);
+      const parts = [dnc ? `Disqualified: ${DNC_REASON}` : "", note, statusChanged ? `Status: ${l.call_status} → ${status}` : ""].filter(Boolean);
       if (!parts.length && !outcome && fu === (l.follow_up_date || null)) return toast("Nothing to save", true);
       if (parts.length || outcome) {
         const { error: e1 } = await sb.from("activities").insert({ lead_id: id, kind: f.get("kind"), outcome: outcome || null, note: parts.join("\n") });
@@ -485,7 +486,7 @@
       }
       const { error: e2 } = await sb.from("leads").update({ call_status: status, follow_up_date: fu }).eq("id", id);
       if (e2) return fail(e2);
-      toast("Saved"); leadView(id);
+      toast(dnc ? `${l.business_name} disqualified (asked not to be called)` : "Saved"); leadView(id);
     };
     // ---------- disqualify / restore ----------
     const dqBtn = document.getElementById("dq-btn"), dqForm = document.getElementById("dq-form");
