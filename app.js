@@ -31,7 +31,7 @@
 
   // Field layout for the lead form
   const FIELDS = [
-    ["Business", [["business_name", "Business name", "text", true], ["trade", "Trade"], ["city", "City"], ["business_address", "Address"], ["business_phone", "Business phone", "tel"]]],
+    ["Business", [["business_name", "Business name", "text", true], ["trade", "Industry"], ["city", "City"], ["business_address", "Address"], ["business_phone", "Business phone", "tel"]]],
     ["Owner", [["owner_name", "Owner name"], ["owner_title", "Title"], ["owner_phone", "Owner phone", "tel"], ["owner_phone_type", "Phone type", ["", "Direct", "Main line"]], ["owner_email", "Owner email", "email"], ["owner_email_status", "Email status", ["", "Verified", "Inferred", "Not found"]]]],
     ["Lead", [["list", "List", ["", "A", "B"]], ["lead_status", "Lead status", LEAD_STATUSES], ["call_status", "Call status", CALL_STATUSES], ["follow_up_date", "Follow-up date", "date"], ["next_step", "Next step"], ["package", "Package", ["", "A", "B"]], ["missing", "Missing info"]]],
     ["Website", [["website", "Website"], ["domain_owned", "Domain owned", ["", "Yes", "No"]], ["website_status", "Website status", ["", "None", "Domain inactive", "Outdated", "Fair"]], ["website_notes", "Website notes", "textarea"]]],
@@ -330,7 +330,7 @@
         ${sel("f-status", "All call statuses", CALL_STATUSES)}
         ${sel("f-list", "Lists A + B", ["A", "B"])}
         ${sel("f-lead", "Qualified + Missing", LEAD_STATUSES)}
-        ${sel("f-trade", "All trades", uniq("trade"))}
+        ${sel("f-trade", "All industries", uniq("trade"))}
         ${sel("f-city", "All cities", uniq("city"))}
       </div>
       <p class="muted small" id="count"></p>
