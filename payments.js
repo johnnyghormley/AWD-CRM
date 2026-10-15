@@ -43,5 +43,16 @@ window.AWD_PAYMENT_LINKS = [
       "$225 one time ($200 website + $25 web address setup)",
       "No monthly fee: I hand the finished site over to you"
     ]
+  },
+  {
+    "key": "referral",
+    "label": "Referral Discount",
+    "detail": "$100 today, then $25/month starting next month (referral pricing)",
+    "url": "https://buy.stripe.com/6oUaEY4VT2pf78d4JhcV204",
+    "monthly": true,
+    "lines": [
+      "$100 today for your website (referral discount)",
+      "$25/month starting next month for hosting, updates and support"
+    ]
   }
 ];
