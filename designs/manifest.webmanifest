@@ -1,0 +1,16 @@
+{
+  "name": "Dex Design Desk",
+  "short_name": "Dex Desk",
+  "description": "AWD design pipeline, revenue and Dex's design queue.",
+  "id": "/designs/",
+  "start_url": "/designs/",
+  "scope": "/designs/",
+  "display": "standalone",
+  "background_color": "#F4F5F7",
+  "theme_color": "#1F2937",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>Dex Design Desk</title>
+<link rel="icon" href="icons/icon-192.png" type="image/png">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="theme-color" content="#1F2937">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Dex Desk">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css?v=1">
+</head>
+<body>
+<header class="top"><div class="wrap">
+  <div class="mark"><div class="logo" aria-hidden="true">AWD</div><div><h1>Dex Design Desk</h1><small>Free designs, clients and money in, at a glance</small></div></div>
+  <div class="row" id="topActions" hidden><button class="primary" id="btnNewDesign" type="button">＋ Add a design</button><button id="install" type="button" hidden>⬇ Install app</button><a class="btn" href="/">CRM</a><button id="signout" type="button">Sign out</button></div>
+</div></header>
+
+<div class="wrap"><form class="panel login" id="login" hidden><h2>Sign in</h2><label>Email<input id="lgEmail" name="email" type="email" required autocomplete="username"></label><label>Password<input id="lgPass" name="password" type="password" required autocomplete="current-password"></label><button class="primary" type="submit">Sign in</button><span class="hint">Same login as the AWD CRM.</span></form>
+<main id="main" hidden>
+  <div class="banner" id="dbBanner" hidden>The design tables aren't set up in the database yet. Run designs.sql in Supabase (SQL Editor), then reload.</div>
+
+  <section class="block" aria-labelledby="sumH">
+    <h2 id="sumH" class="eyebrow">Right now</h2>
+    <div class="stats">
+      <div class="stat hi"><span>Monthly recurring</span><b id="stMrr">$0</b><span id="stMrrN">0 sites on a plan</span></div>
+      <div class="stat"><span>Collected up front</span><b id="stUp">$0</b><span id="stUpN">from 0 paid designs</span></div>
+      <div class="stat"><span>Live sites</span><b id="stLive">0</b><span>on their own domain</span></div>
+      <div class="stat"><span>Waiting on clients</span><b id="stWait">0</b><span>sent, not approved yet</span></div>
+    </div>
+  </section>
+
+  <section class="block" aria-labelledby="pipeH">
+    <div class="head"><div><div class="eyebrow">Design pipeline</div><h2 id="pipeH">Every design Dex has built</h2></div></div>
+    <div class="flow" id="flow" role="group" aria-label="Filter by status"></div>
+    <div class="panel" id="designForm" hidden>
+      <h2 id="designFormH">Add a design</h2>
+      <div class="fields">
+        <label>Business<input id="dfBusiness" required></label>
+        <label>Owner / contact<input id="dfOwner"></label>
+        <label>Status<select id="dfStatus"></select></label>
+        <label>Package<select id="dfPkg"></select></label>
+        <label>Up front ($)<input id="dfUp" type="number" min="0" step="1" inputmode="numeric"></label>
+        <label>Monthly ($)<input id="dfMo" type="number" min="0" step="1" inputmode="numeric"></label>
+        <label>Preview link<input id="dfPreview" type="url" placeholder="https://affordablewebdesigns.vercel.app/designs/…"></label>
+        <label>Live domain<input id="dfLive" type="url" placeholder="https://their-business.com"></label>
+        <label class="wide">Notes<textarea id="dfNotes"></textarea></label>
+        <label class="wide" id="dfThumbWrap">Screenshot <span class="hint">Optional. A PNG or JPG of the homepage.</span><input id="dfThumb" type="file" accept="image/png,image/jpeg,image/webp"></label>
+      </div>
+      <div class="row"><button class="primary" id="dfSave" type="button">Save design</button><button class="ghost" id="dfCancel" type="button">Cancel</button><span class="hint" id="dfMsg"></span></div>
+    </div>
+    <div class="grid" id="designs"></div>
+  </section>
+
+  <section class="block" aria-labelledby="moneyH">
+    <div class="head"><div><div class="eyebrow">Revenue &amp; clients</div><h2 id="moneyH">Paying clients and live sites</h2></div></div>
+    <div class="tbl"><table>
+      <thead><tr><th>Client</th><th>Package</th><th>Status</th><th>Live site</th><th class="num">Up front</th><th class="num">Monthly</th></tr></thead>
+      <tbody id="moneyRows"></tbody>
+      <tfoot><tr><td colspan="4">Totals</td><td class="num" id="totUp">$0</td><td class="num" id="totMo">$0/mo</td></tr></tfoot>
+    </table></div>
+    <div class="pkgs" id="pkgs"></div>
+  </section>
+
+  <section class="block" aria-labelledby="reqH">
+    <div class="head"><div><div class="eyebrow">Design requests</div><h2 id="reqH">Queue a design for Dex</h2></div></div>
+    <div class="panel">
+      <div class="fields">
+        <label>Business<input id="rqBusiness" required></label>
+        <label>Owner / contact<input id="rqContact"></label>
+        <label>Phone<input id="rqPhone" inputmode="tel"></label>
+        <label>Email<input id="rqEmail" type="email"></label>
+        <label>Type of business<input id="rqIndustry" placeholder="Salon, roofing, taqueria…"></label>
+        <label>Current site or reference links<input id="rqLinks" placeholder="Their Facebook, old site, sites they like"></label>
+        <label class="wide">Style and notes<textarea id="rqStyle" placeholder="Colors, fonts, vibe, what to include…"></textarea></label>
+        <label class="wide" id="rqPhotosWrap">Photos <span class="hint">Logos, labels, storefront or style photos (up to 6).</span><input id="rqPhotos" type="file" accept="image/png,image/jpeg,image/webp" multiple></label>
+      </div>
+      <div class="row"><button class="primary" id="rqSave" type="button">Queue for Dex</button><span class="hint" id="rqMsg">Dex picks these up the next time you tell Claude "Dex, check the queue."</span></div>
+    </div>
+    <div class="reqs" id="reqs"></div>
+  </section>
+</main></div>
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="../config.js?v=2"></script>
+<script src="designs.js?v=1"></script>
+</body>
+</html>
