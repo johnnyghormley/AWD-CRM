@@ -441,12 +441,12 @@
         <h3>💳 Send payment link</h3>
         <div class="pay-row">
           <select id="pay-pkg" aria-label="Package">${window.AWD_PAYMENT_LINKS.map((p) => `<option value="${p.key}" ${p.key === (l.list === "B" ? "website_upgrade" : "new_website") ? "selected" : ""}>${esc(p.label)}</option>`).join("")}</select>
-          <button type="button" class="btn" id="pay-copy">Copy link</button>
+          <button type="button" class="btn" id="pay-copy">Copy links</button>
           ${usable(phones[0] && phones[0][0]) ? `<a class="btn ghost" id="pay-text" href="#">Text it</a>` : ""}
           ${usable(l.owner_email) && l.owner_email_status !== "Inferred" ? `<a class="btn ghost" id="pay-email" href="#">Email it (Gmail)</a>` : `<button type="button" class="btn ghost" id="pay-add-email">＋ Add email to send it</button>`}
         </div>
         <p class="muted small" id="pay-detail"></p>
-        <p class="muted small">They enter their card on Stripe's secure page. You never see the card number.</p>
+        <p class="muted small">They pay on Stripe's secure page, by card (+3% fee) or from their bank account (no fee). You never see their card or bank details. Bank payments take a few business days to clear.</p>
       </section>` : ""}
 
       <form class="card pad" id="log">
@@ -533,14 +533,18 @@
     if (payBox) {
       const pkg = () => window.AWD_PAYMENT_LINKS.find((p) => p.key === payBox.value);
       const first = usable(l.owner_name) ? l.owner_name.split(" ")[0].split("(")[0].trim() : "there";
-      const msg = () => `Hi ${first}, it's Johnny with Affordable Web Designs. Here's the secure link to get your website going (${pkg().label}: ${pkg().detail}): ${pkg().url}`;
-      const showDetail = () => { document.getElementById("pay-detail").textContent = pkg().detail; };
+      // Every package has a card link (3% fee) and a no-fee bank link; the customer picks.
+      const links = () => pkg().bank_url ? `Pay by card (3% card fee): ${pkg().url}
+Pay from your bank account (no fee): ${pkg().bank_url}` : pkg().url;
+      const msg = () => `Hi ${first}, it's Johnny with Affordable Web Designs. Here are the secure links to get your website going (${pkg().label}: ${pkg().detail}).
+${links()}`;
+      const showDetail = () => { document.getElementById("pay-detail").textContent = pkg().detail + (pkg().fee_line ? ". " + pkg().fee_line : ""); };
       const logSent = async (how) => {
         await sb.from("activities").insert({ lead_id: id, kind: how === "Email" ? "Email" : how === "Text" ? "Text" : "Note", note: `Payment link ${how === "Copied" ? "copied" : how === "Email" ? "opened in Gmail to send" : "opened in a text to send"}: ${pkg().label}, ${pkg().detail}` });
       };
       payBox.onchange = showDetail; showDetail();
       document.getElementById("pay-copy").onclick = async () => {
-        try { await navigator.clipboard.writeText(pkg().url); toast("Payment link copied"); } catch (e) { prompt("Copy this link:", pkg().url); }
+        try { await navigator.clipboard.writeText(links()); toast(pkg().bank_url ? "Card + bank links copied" : "Payment link copied"); } catch (e) { prompt("Copy this:", links()); }
         await logSent("Copied");
       };
       const t = document.getElementById("pay-text");

@@ -11,7 +11,12 @@
     const next = pkg.monthly
       ? "Once your payment goes through, I'll get your website live and send you the link."
       : "Once your payment goes through, I'll send you your finished website and everything you need to run it.";
-    const fine = "You'll pay by card on Stripe's secure checkout and get a receipt by email." + (pkg.monthly ? " You can cancel the monthly plan anytime." : "");
+    const bank = pkg.bank_url;
+    const fine = (bank ? (pkg.fee_line || "") + " Both options use Stripe's secure checkout and you'll get a receipt by email."
+      : "You'll pay by card on Stripe's secure checkout and get a receipt by email.") + (pkg.monthly ? " You can cancel the monthly plan anytime." : "");
+    const btn = (url, label, bg) => `<td align="center" style="background:${bg};border-radius:10px;border:2px solid #FACC15">
+     <a href="${h(url)}" style="display:inline-block;padding:14px 26px;font-size:16px;font-weight:bold;color:#1F2937;text-decoration:none">${label}</a>
+    </td>`;
     const html = `
 <div style="background:#F3F4F6;padding:24px 12px;font-family:Arial,Helvetica,sans-serif;color:#1F2937">
  <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="width:100%;max-width:560px;background:#ffffff;border-radius:12px;overflow:hidden;border-collapse:separate">
@@ -23,7 +28,7 @@
   </td></tr>
   <tr><td style="padding:28px 24px 8px 24px;font-size:16px;line-height:1.55">
    <p style="margin:0 0 14px 0">Hi ${h(first)},</p>
-   <p style="margin:0 0 20px 0">Thanks for choosing Affordable Web Designs! Here's your secure payment link${business ? " for <b>" + h(business) + "</b>" : ""}.</p>
+   <p style="margin:0 0 20px 0">Thanks for choosing Affordable Web Designs! Here's your secure payment link${bank ? "s" : ""}${business ? " for <b>" + h(business) + "</b>" : ""}.</p>
    <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;background:#FEF9C3;border-left:4px solid #FACC15;border-radius:8px">
     <tr><td style="padding:14px 16px">
      <div style="font-size:12px;letter-spacing:1px;text-transform:uppercase;color:#6B7280;font-weight:bold">What you're getting</div>
@@ -32,11 +37,12 @@
     </td></tr>
    </table>
    <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:26px auto 10px auto">
-    <tr><td align="center" style="background:#FACC15;border-radius:10px">
+    ${bank ? `<tr>${btn(bank, "Pay from bank (no fee) &rarr;", "#FACC15")}</tr><tr><td style="height:10px"></td></tr><tr>${btn(pkg.url, "Pay by card (+3% fee) &rarr;", "#ffffff")}</tr>`
+      : `<tr><td align="center" style="background:#FACC15;border-radius:10px">
      <a href="${h(pkg.url)}" style="display:inline-block;padding:15px 34px;font-size:17px;font-weight:bold;color:#1F2937;text-decoration:none">Pay securely &rarr;</a>
-    </td></tr>
+    </td></tr>`}
    </table>
-   <p style="margin:0 0 22px 0;text-align:center;font-size:13px;color:#6B7280">${h(fine)}<br>Button not working? Use this link: <a href="${h(pkg.url)}" style="color:#1F2937">${h(pkg.url)}</a></p>
+   <p style="margin:0 0 22px 0;text-align:center;font-size:13px;color:#6B7280">${h(fine)}<br>Buttons not working? ${bank ? `Bank: <a href="${h(bank)}" style="color:#1F2937">${h(bank)}</a><br>Card: ` : "Use this link: "}<a href="${h(pkg.url)}" style="color:#1F2937">${h(pkg.url)}</a></p>
    <p style="margin:0 0 6px 0;font-weight:bold">What happens next</p>
    <p style="margin:0 0 20px 0">${h(next)}</p>
    <p style="margin:0 0 22px 0">Questions? Call or text me at <a href="tel:+18325080059" style="color:#1F2937;font-weight:bold">832-508-0059</a>.</p>
@@ -48,7 +54,8 @@
   </td></tr>
  </table>
 </div>`;
-    const text = [`Hi ${first},`, "", "Thanks for choosing Affordable Web Designs! Here's your secure payment link:", "", pkg.url, "",
+    const text = [`Hi ${first},`, "", "Thanks for choosing Affordable Web Designs! Here's your secure payment link" + (bank ? "s:" : ":"), "",
+      ...(bank ? ["Pay from your bank account (no fee): " + bank, "Pay by card (+3% card fee): " + pkg.url] : [pkg.url]), "",
       `WHAT YOU'RE GETTING: ${pkg.label}`, ...lines.map((l) => "  • " + l), "", fine, "", "WHAT HAPPENS NEXT: " + next, "",
       "Questions? Call or text me at 832-508-0059.", "", "Johnny Ghormley", "Affordable Web Designs", SITE].join("\n");
     return { html, text };
