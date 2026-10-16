@@ -4,6 +4,7 @@
 (() => {
   const LOGO = "https://affordablewebdesigns.vercel.app/email/awd-logo.png";
   const SITE = "affordablewebdesigns.vercel.app";
+  const REVIEW = "https://g.page/r/CQVh4c4poilNEBM/review"; // AWD's Google Business Profile review link
   const h = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
   function build({ first, business, pkg }) {
@@ -45,6 +46,7 @@
    <p style="margin:0 0 22px 0;text-align:center;font-size:13px;color:#6B7280">${h(fine)}<br>Buttons not working? ${bank ? `Bank: <a href="${h(bank)}" style="color:#1F2937">${h(bank)}</a><br>Card: ` : "Use this link: "}<a href="${h(pkg.url)}" style="color:#1F2937">${h(pkg.url)}</a></p>
    <p style="margin:0 0 6px 0;font-weight:bold">What happens next</p>
    <p style="margin:0 0 20px 0">${h(next)}</p>
+   <p style="margin:0 0 20px 0">Once your website is live, I'd really appreciate a quick Google review. It helps other local businesses find me: <a href="${REVIEW}" style="color:#1F2937;font-weight:bold">Leave a Google review &#9733;</a></p>
    <p style="margin:0 0 22px 0">Questions? Call or text me at <a href="tel:+18325080059" style="color:#1F2937;font-weight:bold">832-508-0059</a>.</p>
    <p style="margin:0 0 4px 0">Thanks,</p>
    <p style="margin:0 0 24px 0"><b>Johnny Ghormley</b><br><span style="color:#6B7280">Affordable Web Designs</span></p>
@@ -57,6 +59,7 @@
     const text = [`Hi ${first},`, "", "Thanks for choosing Affordable Web Designs! Here's your secure payment link" + (bank ? "s:" : ":"), "",
       ...(bank ? ["Pay from your bank account (no fee): " + bank, "Pay by card (+3% card fee): " + pkg.url] : [pkg.url]), "",
       `WHAT YOU'RE GETTING: ${pkg.label}`, ...lines.map((l) => "  • " + l), "", fine, "", "WHAT HAPPENS NEXT: " + next, "",
+      "Once your website is live, I'd really appreciate a quick Google review. It helps other local businesses find me: " + REVIEW, "",
       "Questions? Call or text me at 832-508-0059.", "", "Johnny Ghormley", "Affordable Web Designs", SITE].join("\n");
     return { html, text };
   }
