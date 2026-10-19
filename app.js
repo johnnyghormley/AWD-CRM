@@ -454,7 +454,7 @@
         <div class="grid">
           <label>Type<select name="kind">${KINDS.map((k) => `<option>${k}</option>`).join("")}</select></label>
           <label>Outcome<select name="outcome">${OUTCOMES.map((o) => `<option value="${o}">${o || "—"}</option>`).join("")}</select></label>
-          <label>New call status<select name="call_status">${CALL_STATUSES.map((s) => `<option ${s === l.call_status ? "selected" : ""}>${s}</option>`).join("")}</select></label>
+          <label>New call status<select name="call_status">${CALL_STATUSES.map((s) => `<option ${s === (l.call_status === "New" ? "Called" : l.call_status) ? "selected" : ""}>${s}</option>`).join("")}</select></label>
           <label>Follow up on<input type="date" name="follow_up_date" value="${esc(l.follow_up_date || "")}"></label>
           <label class="wide">Notes<textarea name="note" rows="3" placeholder="What happened? What's next?"></textarea></label>
         </div>
@@ -470,6 +470,9 @@
         <form id="edit">${formHtml(l)}<div class="row-btns"><button class="btn">Save changes</button><button type="button" class="btn danger" id="del">Delete lead</button></div></form>
       </details>`;
 
+    // New leads default to "Called" in the Log a call form, since logging a call is what moves them from Ready to Called.
+    let statusTouched = false;
+    document.querySelector('#log [name="call_status"]').onchange = () => { statusTouched = true; };
     document.getElementById("log").onsubmit = async (e) => {
       e.preventDefault();
       const f = new FormData(e.target);
@@ -478,6 +481,10 @@
       // They asked not to be called again → disqualify the company (reason line first, so the Disqualified tab shows it).
       const dnc = (outcome === "Asked not to call" || status === "Do Not Call") && l.call_status !== "Disqualified";
       if (dnc) { status = "Disqualified"; fu = null; }
+      // A logged call means the lead has been called: never leave it "New" (that kept it in Ready instead of Called).
+      // A text, email or note on a New lead keeps it New unless a status was picked on purpose.
+      if (f.get("kind") === "Call" && status === "New") status = "Called";
+      else if (f.get("kind") !== "Call" && l.call_status === "New" && status === "Called" && !statusTouched) status = "New";
       const statusChanged = status !== l.call_status;
       const parts = [dnc ? `Disqualified: ${DNC_REASON}` : "", note, statusChanged ? `Status: ${l.call_status} → ${status}` : ""].filter(Boolean);
       if (!parts.length && !outcome && fu === (l.follow_up_date || null)) return toast("Nothing to save", true);
