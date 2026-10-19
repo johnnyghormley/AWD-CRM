@@ -119,8 +119,13 @@
   // Disqualified = not a fit. A lead that asked not to be called again is disqualified automatically
   // (logging the outcome "Asked not to call" or the status "Do Not Call" sets it to Disqualified).
   const isDq = (l) => l.call_status === "Disqualified" || l.call_status === "Do Not Call";
+  // Follow-up due = follow-up date is today or earlier (local date) on a lead that's still open, same rule as Today's
+  // "Due today or overdue". Overdue ones stay until you log the call with a new date or status; closed and
+  // disqualified leads never show.
+  const isDue = (l) => !!l.follow_up_date && l.follow_up_date <= today() && !CLOSED.includes(l.call_status);
+  const isFresh = (l) => l.lead_status !== "Missing Info" && l.call_status === "New";
   const TABS = [
-    ["ready", "Ready", (l) => l.lead_status !== "Missing Info" && l.call_status === "New", "Qualified leads not called yet."],
+    ["ready", "Ready", (l) => isFresh(l) || isDue(l), "Follow-ups due today (and overdue ones), then qualified leads not called yet."],
     ["missing", "Missing info", (l) => l.lead_status === "Missing Info" && l.call_status === "New", "Not called yet, still missing some info."],
     ["called", "Called", (l) => l.call_status !== "New" && !isDq(l), "Everyone you've called. Check Follow up to move a lead into the Follow up list."],
     ["disqualified", "Disqualified", isDq, "Leads that aren't a fit. They're kept out of every other list. Tap Restore to put one back in Ready."]
@@ -141,6 +146,7 @@
       const why = dqReasons.get(String(l.id)) || (l.call_status === "Do Not Call" ? DNC_REASON : "");
       return todayRow(l, false, `<div class="trow-extra">${why ? `<span class="dq-why">${esc(why)}</span>` : ""}<button type="button" class="btn ghost small" data-restore="${l.id}">↩ Restore</button></div>`);
     }
+    if (tab === "ready-due") return todayRow(l, true, `<div class="trow-extra"><span class="pill ${statusClass(l.call_status)}">${esc(l.call_status)}</span></div>`);
     const status = tab === "called" ? `<span class="pill ${statusClass(l.call_status)}">${esc(l.call_status)}</span>` : "";
     const box = tab === "called" ? `<label class="fu-check"><input type="checkbox" data-id="${l.id}" ${isFollow(l) ? "checked" : ""}>Follow up</label>` : "";
     return todayRow(l, tab === "called" && !!l.follow_up_date, `<div class="trow-extra">${status}${box}</div>`);
@@ -192,6 +198,11 @@
         ${tabList(rows.filter(isFollow), "called", "No follow-ups.")}
         <h3 class="sub-h">Called <span class="muted">(${rows.filter((l) => !isFollow(l)).length})</span></h3>
         ${tabList(rows.filter((l) => !isFollow(l)), "called", "Nothing here yet.")}`
+      : tab === "ready" ? `
+        <h3 class="sub-h">Follow-ups due today <span class="muted">(${rows.filter(isDue).length})</span></h3>
+        ${tabList(rows.filter(isDue), "ready-due", "No follow-ups due today.")}
+        <h3 class="sub-h">Not called yet <span class="muted">(${rows.filter((l) => !isDue(l)).length})</span></h3>
+        ${tabList(rows.filter((l) => !isDue(l)), "ready", "Nothing here yet.")}`
       : tabList(rows, tab, tab === "disqualified" ? "No disqualified leads. Use 🚫 Disqualify on a lead's page." : "Nothing here yet.")}`;
     el.querySelectorAll(".trow").forEach((r) => r.addEventListener("click", (e) => { if (!e.target.closest("a, label, input, button")) location.hash = r.dataset.href; }));
     el.querySelectorAll("[data-restore]").forEach((b) => b.onclick = async () => {
