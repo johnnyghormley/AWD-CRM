@@ -14,7 +14,9 @@
   const CLOSED = ["Won", "Not Interested", "Do Not Call", "Disqualified"];
   const KINDS = ["Call", "Text", "Email", "Design sent", "Note"];
   const DNC_REASON = "Asked not to be called again";
-  const DQ_REASONS = [DNC_REASON, "Already has a good website", "Out of business", "Outside our area", "Commercial only, not residential", "Too big / has a marketing team", "Can't reach the owner", "Duplicate", "Other"];
+  // "Does not speak English" is only a choice in the Log a call form: saving it disqualifies the lead (it's never stored as a status).
+  const NO_ENGLISH = "Does not speak English";
+  const DQ_REASONS = [DNC_REASON, NO_ENGLISH, "Already has a good website", "Out of business", "Outside our area", "Commercial only, not residential", "Too big / has a marketing team", "Can't reach the owner", "Duplicate", "Other"];
   const OUTCOMES = ["", "No answer", "Voicemail", "Talked", "Interested", "Wants design", "Not interested", "Wrong number", "Asked not to call"];
 
   // Columns in Abby's CSVs → database fields
@@ -465,7 +467,7 @@
         <div class="grid">
           <label>Type<select name="kind">${KINDS.map((k) => `<option>${k}</option>`).join("")}</select></label>
           <label>Outcome<select name="outcome">${OUTCOMES.map((o) => `<option value="${o}">${o || "—"}</option>`).join("")}</select></label>
-          <label>New call status<select name="call_status">${CALL_STATUSES.map((s) => `<option ${s === (l.call_status === "New" ? "Called" : l.call_status) ? "selected" : ""}>${s}</option>`).join("")}</select></label>
+          <label>New call status<select name="call_status">${[...CALL_STATUSES, NO_ENGLISH].map((s) => `<option ${s === (l.call_status === "New" ? "Called" : l.call_status) ? "selected" : ""}>${s}</option>`).join("")}</select></label>
           <label>Follow up on<input type="date" name="follow_up_date" value="${esc(l.follow_up_date || "")}"></label>
           <label class="wide">Notes<textarea name="note" rows="3" placeholder="What happened? What's next?"></textarea></label>
         </div>
@@ -492,12 +494,16 @@
       // They asked not to be called again → disqualify the company (reason line first, so the Disqualified tab shows it).
       const dnc = (outcome === "Asked not to call" || status === "Do Not Call") && l.call_status !== "Disqualified";
       if (dnc) { status = "Disqualified"; fu = null; }
+      // They don't speak English → disqualify the company with that reason.
+      const noEnglish = !dnc && status === NO_ENGLISH;
+      if (noEnglish) { status = "Disqualified"; fu = null; }
+      const dqLine = dnc ? `Disqualified: ${DNC_REASON}` : noEnglish && l.call_status !== "Disqualified" ? `Disqualified: ${NO_ENGLISH}` : "";
       // A logged call means the lead has been called: never leave it "New" (that kept it in Ready instead of Called).
       // A text, email or note on a New lead keeps it New unless a status was picked on purpose.
       if (f.get("kind") === "Call" && status === "New") status = "Called";
       else if (f.get("kind") !== "Call" && l.call_status === "New" && status === "Called" && !statusTouched) status = "New";
       const statusChanged = status !== l.call_status;
-      const parts = [dnc ? `Disqualified: ${DNC_REASON}` : "", note, statusChanged ? `Status: ${l.call_status} → ${status}` : ""].filter(Boolean);
+      const parts = [dqLine, note, statusChanged ? `Status: ${l.call_status} → ${status}` : ""].filter(Boolean);
       if (!parts.length && !outcome && fu === (l.follow_up_date || null)) return toast("Nothing to save", true);
       if (parts.length || outcome) {
         const { error: e1 } = await sb.from("activities").insert({ lead_id: id, kind: f.get("kind"), outcome: outcome || null, note: parts.join("\n") });
@@ -505,7 +511,7 @@
       }
       const { error: e2 } = await sb.from("leads").update({ call_status: status, follow_up_date: fu }).eq("id", id);
       if (e2) return fail(e2);
-      toast(dnc ? `${l.business_name} disqualified (asked not to be called)` : "Saved"); leadView(id);
+      toast(dnc ? `${l.business_name} disqualified (asked not to be called)` : dqLine ? `${l.business_name} disqualified (does not speak English)` : "Saved"); leadView(id);
     };
     // ---------- disqualify / restore ----------
     const dqBtn = document.getElementById("dq-btn"), dqForm = document.getElementById("dq-form");
