@@ -411,6 +411,10 @@
       sb.from("activities").select("*").eq("lead_id", id).order("created_at", { ascending: false })
     ]);
     if (error) return fail(error);
+    // Dex requests for this business (the Designs app's queue), newest first, to show what's already asked for.
+    const sameBusiness = l.business_name.replace(/[\\%_]/g, "\\$&"); // exact name, case-insensitive (ilike with wildcards escaped)
+    const { data: dexReqs } = await sb.from("design_requests").select("id, status, created_at").ilike("business", sameBusiness).order("created_at", { ascending: false });
+    const dexOpen = (dexReqs || []).find((r) => r.status !== "done"), dexDone = (dexReqs || []).find((r) => r.status === "done");
     const phones = [[l.owner_phone, `Call ${usable(l.owner_name) ? l.owner_name.split(" (")[0] : "owner"}`], [l.business_phone, "Call business"]].filter(([p]) => usable(p));
     app.innerHTML = `
       <section class="card pad">
@@ -481,7 +485,38 @@
 
       <details class="card pad"><summary><b>Edit all details</b></summary>
         <form id="edit">${formHtml(l)}<div class="row-btns"><button class="btn">Save changes</button><button type="button" class="btn danger" id="del">Delete lead</button></div></form>
-      </details>`;
+      </details>
+
+      <section class="card pad dex">
+        <h3>🎨 Free design by Dex</h3>
+        ${dexOpen
+          ? `<p><b>${dexOpen.status === "in_progress" ? "Dex is building it" : "Queued for Dex"}</b> since ${fmtTime(dexOpen.created_at)}. Tell Claude “Dex, check the queue” to start it. Track it in <a href="/designs/">Designs</a>.</p>`
+          : `${dexDone ? `<p class="muted small">Dex already built one (requested ${fmtTime(dexDone.created_at)}). See <a href="/designs/">Designs</a>.</p>` : ""}
+            <p class="muted small">Adds ${esc(l.business_name)} to Dex's queue with this lead's details. Dex never contacts the business.</p>
+            <button type="button" class="btn" id="dex-btn">${dexDone ? "Have Dex build another design" : "Have Dex build a free design"}</button>`}
+      </section>`;
+
+    // ---------- Have Dex build a free design: queue a design_requests row from this lead ----------
+    const dexBtn = document.getElementById("dex-btn");
+    if (dexBtn) dexBtn.onclick = async () => {
+      if (!confirm(`Have Dex build a free website design for ${l.business_name}?`)) return;
+      dexBtn.disabled = true;
+      // Re-check so a second tap (or another device) can't queue it twice.
+      const { data: open } = await sb.from("design_requests").select("id").ilike("business", sameBusiness).neq("status", "done");
+      if (open && open.length) { toast("Already queued for Dex"); return leadView(id); }
+      const pick = (...v) => v.filter(usable).join(" / ");
+      const extra = [`From CRM lead ${location.origin}/#/lead/${l.id}`, usable(l.city) && `City: ${l.city}`, usable(l.business_address) && `Address: ${l.business_address}`,
+        usable(l.list) && `List ${l.list}`, usable(l.website_status) && `Website: ${l.website_status}`, usable(l.website_notes) && `Website notes: ${l.website_notes}`,
+        usable(l.rapport_note) && `Rapport: ${l.rapport_note}`, l.google_rating && `Google: ${l.google_rating}★ (${l.review_count || 0} reviews)`].filter(Boolean).join("\n");
+      const { error: e1 } = await sb.from("design_requests").insert({
+        business: l.business_name, contact: usable(l.owner_name) ? l.owner_name : null,
+        phone: pick(l.owner_phone, l.business_phone) || null, email: usable(l.owner_email) ? l.owner_email : null,
+        industry: usable(l.trade) ? l.trade : null, links: pick(l.website, l.facebook, l.linkedin) || null, style: extra
+      });
+      if (e1) { dexBtn.disabled = false; return fail(e1); }
+      await sb.from("activities").insert({ lead_id: id, kind: "Note", note: "Asked Dex to build a free design (queued in Designs)" });
+      toast("Queued for Dex. Tell Claude “Dex, check the queue”."); leadView(id);
+    };
 
     // New leads default to "Called" in the Log a call form, since logging a call is what moves them from Ready to Called.
     let statusTouched = false;

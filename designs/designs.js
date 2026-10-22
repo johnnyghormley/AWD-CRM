@@ -155,7 +155,7 @@
     const lbl = { queued: "Queued", in_progress: "Dex is on it", done: "Done" };
     $("reqs").innerHTML = list.map((r) => `<div class="req ${esc(r.status)}">
       <div class="ctitle"><div><h3>${esc(r.business)}</h3><p class="note">${esc([r.industry, r.contact, r.phone, r.email].filter(Boolean).join(" · "))}</p></div><span class="pill ${r.status === "done" ? "s-live" : r.status === "in_progress" ? "s-approved" : "s-building"}">${lbl[r.status] || "Queued"}</span></div>
-      ${r.style ? `<p>${esc(r.style)}</p>` : ""}
+      ${r.style ? `<p style="white-space:pre-line">${esc(r.style)}</p>` : ""}
       ${r.links ? `<p class="note">Links: ${esc(r.links)}</p>` : ""}
       ${(r.photos || []).length ? `<div class="photos">${r.photos.map((p) => signed[p] ? `<img src="${esc(signed[p])}" alt="Reference photo for ${esc(r.business)}" loading="lazy">` : "").join("")}</div>` : ""}
       <div class="row">
