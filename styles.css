@@ -225,3 +225,47 @@ main > * { min-width: 0; }
 /* Reload button, top left */
 .reload { display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border-radius: 10px; border: 1px solid rgba(250,204,21,.5); background: none; color: var(--y); cursor: pointer; flex: none; }
 .reload:hover, .reload:active { background: var(--y); color: var(--c); }
+
+/* Meetings box on the lead page */
+.meets-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.meets-head h3 { margin: 0; }
+.meet-form { display: grid; gap: 10px; margin-top: 12px; padding: 12px; background: #F9FAFB; border: 1px solid var(--line); border-radius: 10px; }
+.meet { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
+.meet:first-of-type { margin-top: 10px; }
+.meet.late b { color: #B91C1C; }
+.meet-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* Calendar tab */
+.cal-top { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+.cal-top .h { margin: 0; }
+.cal-nav { display: flex; align-items: center; gap: 8px; }
+.cal-nav b { min-width: 140px; text-align: center; font-family: Montserrat, sans-serif; }
+.cal-key { margin: 8px 0; } .cal-key .cal-ev { display: inline-block; }
+.cal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); overflow: hidden; }
+.cal-dow { font-size: 12px; font-weight: 600; color: var(--muted); text-align: center; padding: 6px 0; background: #F9FAFB; border-bottom: 1px solid var(--line); }
+.cal-day { min-height: 96px; padding: 4px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.cal-day:nth-child(7n) { border-right: 0; }
+.cal-day.blank { background: #FAFAFA; }
+.cal-day.past { background: #FCFCFD; }
+.cal-day.past .cal-num { color: #9CA3AF; }
+.cal-day.today { background: #FEFCE8; }
+.cal-day.today .cal-num { background: var(--y); color: var(--c); border-radius: 999px; padding: 0 7px; }
+.cal-num { font-size: 12px; font-weight: 600; align-self: flex-start; }
+.cal-ev { font-size: 11.5px; line-height: 1.3; padding: 2px 5px; border-radius: 5px; text-decoration: none; color: var(--c); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+.cal-ev.meet { background: #DBEAFE; color: #1E3A8A; }
+.cal-ev.fu { background: #FEF9C3; color: #713F12; }
+.cal-ev.fu.late { background: #FEE2E2; color: #991B1B; }
+.cal-ev.done { opacity: .55; text-decoration: line-through; }
+.cal-more { font-size: 11px; color: var(--muted); }
+.agenda { padding: 4px 0; margin-top: 8px; }
+.agenda-day { font-size: 12px; font-weight: 700; color: var(--muted); padding: 10px 16px 4px; text-transform: uppercase; letter-spacing: .03em; }
+.agenda-row { display: flex; gap: 12px; align-items: flex-start; padding: 8px 16px; color: var(--c); text-decoration: none; }
+.agenda-row:hover { background: #F9FAFB; }
+.agenda-tag { font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 999px; white-space: nowrap; margin-top: 2px; }
+.agenda-tag.meet { background: #DBEAFE; color: #1E3A8A; }
+.agenda-tag.fu { background: #FEF9C3; color: #713F12; }
+@media (max-width: 640px) {
+  .cal-day { min-height: 58px; padding: 2px; }
+  .cal-ev { font-size: 0; padding: 0; height: 7px; border-radius: 4px; }
+  .cal-key .cal-ev { font-size: 11.5px; height: auto; padding: 2px 5px; }
+}

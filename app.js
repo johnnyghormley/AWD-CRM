@@ -48,6 +48,20 @@
   const usable = (v) => v && !/^(unknown|none|n\/a|not found)$/i.test(String(v).trim());
   const slug = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
   const statusClass = (s) => "st-" + slug(s);
+  // Meetings (meetings table, meetings.sql): booked on a lead page, shown there and on the Calendar tab.
+  const MEETING_KINDS = ["Phone call", "Video call", "In person"];
+  const MEETING_ICON = { "Phone call": "📞", "Video call": "🎥", "In person": "🤝" };
+  const fmtMeeting = (m) => new Date(m.starts_at).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  const localDay = (iso) => new Date(iso).toLocaleDateString("en-CA");
+  // Google Calendar "add event" link, prefilled (opens in the browser; nothing is sent anywhere until you save it there).
+  function gcalLink(m, l) {
+    const z = (d) => d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+    const a = new Date(m.starts_at), b = new Date(a.getTime() + (m.duration_min || 30) * 60000);
+    const q = new URLSearchParams({ action: "TEMPLATE", text: `AWD: ${m.kind} with ${l.business_name}`, dates: `${z(a)}/${z(b)}`,
+      details: [usable(l.owner_name) && `Owner: ${l.owner_name}`, usable(l.owner_phone || l.business_phone) && `Phone: ${l.owner_phone || l.business_phone}`, m.note, `CRM: ${location.origin}/#/lead/${l.id}`].filter(Boolean).join("\n"),
+      location: m.location || "" });
+    return "https://calendar.google.com/calendar/render?" + q.toString();
+  }
 
   function toast(msg, bad) {
     const t = document.getElementById("toast");
@@ -333,6 +347,64 @@
     if (window.AbbyRunner) AbbyRunner.start(leads);
   }
 
+  // ---------- Calendar: follow-ups (open leads' follow_up_date) + booked meetings, month grid + upcoming list ----------
+  let calMonth = null; // "YYYY-MM" being shown
+  async function calendarView() {
+    const [{ data: leads, error }, { data: meets, error: mErr }] = await Promise.all([
+      sb.from("leads").select("id,business_name,owner_name,call_status,follow_up_date,next_step").not("follow_up_date", "is", null),
+      sb.from("meetings").select("*, leads(business_name, owner_name)").neq("status", "canceled").order("starts_at", { ascending: true })
+    ]);
+    if (error) return fail(error);
+    const t = today();
+    if (!calMonth) calMonth = t.slice(0, 7);
+    // events by day: { day: "YYYY-MM-DD", type: "meet"|"fu", ... }
+    const events = [];
+    (leads || []).filter((l) => !CLOSED.includes(l.call_status)).forEach((l) => events.push({ day: l.follow_up_date, type: "fu", lead: l.id, name: l.business_name,
+      sub: [l.call_status, l.next_step].filter(usable).join(" · "), late: l.follow_up_date < t, sort: "" }));
+    (meets || []).forEach((m) => events.push({ day: localDay(m.starts_at), type: "meet", lead: m.lead_id, name: (m.leads && m.leads.business_name) || "Lead",
+      time: new Date(m.starts_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }), kind: m.kind, done: m.status === "done",
+      sub: [m.kind, `${m.duration_min} min`, m.location].filter(Boolean).join(" · "), sort: m.starts_at }));
+    events.sort((a, b) => a.day.localeCompare(b.day) || (a.type === b.type ? a.sort.localeCompare(b.sort) : a.type === "meet" ? -1 : 1));
+    const byDay = {};
+    events.forEach((e) => (byDay[e.day] = byDay[e.day] || []).push(e));
+
+    const [y, mo] = calMonth.split("-").map(Number);
+    const first = new Date(y, mo - 1, 1), days = new Date(y, mo, 0).getDate();
+    const ymd = (d) => `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    const shift = (n) => { const d = new Date(y, mo - 1 + n, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
+    const chip = (e) => `<a class="cal-ev ${e.type}${e.late ? " late" : ""}${e.done ? " done" : ""}" href="#/lead/${e.lead}" title="${esc(e.name + (e.sub ? " · " + e.sub : ""))}">${e.type === "meet" ? `${MEETING_ICON[e.kind] || "📅"} ${esc(e.time)} ` : "↻ "}${esc(e.name)}</a>`;
+    let cells = "";
+    for (let i = 0; i < first.getDay(); i++) cells += `<div class="cal-day blank"></div>`;
+    for (let d = 1; d <= days; d++) {
+      const key = ymd(d), list = byDay[key] || [];
+      cells += `<div class="cal-day${key === t ? " today" : ""}${key < t ? " past" : ""}"><span class="cal-num">${d}</span>${list.slice(0, 4).map(chip).join("")}${list.length > 4 ? `<span class="cal-more">+${list.length - 4} more</span>` : ""}</div>`;
+    }
+    const lateFu = events.filter((e) => e.type === "fu" && e.late);
+    const ahead = events.filter((e) => e.day >= t && !e.done).slice(0, 40);
+    const row = (e) => `<a class="agenda-row" href="#/lead/${e.lead}"><span class="agenda-tag ${e.type}">${e.type === "meet" ? "Meeting" : "Follow-up"}</span>
+      <span><b>${esc(e.name)}</b>${e.type === "meet" ? ` · ${esc(e.time)}` : ""}<br><span class="muted small">${esc(e.sub || "")}</span></span></a>`;
+    const groupRows = (list) => { let out = "", last = ""; list.forEach((e) => { if (e.day !== last) { last = e.day; out += `<div class="agenda-day">${e.day === t ? "Today · " : ""}${esc(fmtDate(e.day))}</div>`; } out += row(e); }); return out; };
+
+    app.innerHTML = `
+      <div class="cal-top"><h2 class="h">Calendar</h2>
+        <div class="cal-nav"><button class="btn ghost small" id="cal-prev" aria-label="Previous month">‹</button>
+          <b>${first.toLocaleDateString("en-US", { month: "long", year: "numeric" })}</b>
+          <button class="btn ghost small" id="cal-next" aria-label="Next month">›</button>
+          <button class="btn ghost small" id="cal-today">Today</button></div></div>
+      <p class="muted small cal-key"><span class="cal-ev meet">📅 Meeting</span> <span class="cal-ev fu">↻ Follow-up</span> <span class="cal-ev fu late">Overdue</span> · Book meetings from a lead's page.</p>
+      ${mErr ? `<p class="pill warn">Meetings aren't set up yet (run meetings.sql). Showing follow-ups only.</p>` : ""}
+      <section class="card cal">
+        ${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => `<div class="cal-dow">${d}</div>`).join("")}
+        ${cells}
+      </section>
+      ${lateFu.length ? `<h2 class="h">Overdue follow-ups <span class="muted">(${lateFu.length})</span></h2><div class="card agenda">${groupRows(lateFu)}</div>` : ""}
+      <h2 class="h">Upcoming <span class="muted">(${ahead.length})</span></h2>
+      <div class="card agenda">${ahead.length ? groupRows(ahead) : `<p class="muted pad">Nothing scheduled.</p>`}</div>`;
+    document.getElementById("cal-prev").onclick = () => { calMonth = shift(-1); calendarView(); };
+    document.getElementById("cal-next").onclick = () => { calMonth = shift(1); calendarView(); };
+    document.getElementById("cal-today").onclick = () => { calMonth = t.slice(0, 7); calendarView(); };
+  }
+
   async function leadsView() {
     const { data: leads, error } = await sb.from("leads").select("*").order("updated_at", { ascending: false });
     if (error) return fail(error);
@@ -406,11 +478,15 @@
   }
 
   async function leadView(id) {
-    const [{ data: l, error }, { data: acts }] = await Promise.all([
+    const [{ data: l, error }, { data: acts }, { data: meets, error: mErr }] = await Promise.all([
       sb.from("leads").select("*").eq("id", id).single(),
-      sb.from("activities").select("*").eq("lead_id", id).order("created_at", { ascending: false })
+      sb.from("activities").select("*").eq("lead_id", id).order("created_at", { ascending: false }),
+      sb.from("meetings").select("*").eq("lead_id", id).order("starts_at", { ascending: true })
     ]);
     if (error) return fail(error);
+    const nowIso = new Date().toISOString();
+    const upcoming = (meets || []).filter((m) => m.status === "scheduled");
+    const pastMeets = (meets || []).filter((m) => m.status !== "scheduled").slice(-3).reverse();
     // Dex requests for this business (the Designs app's queue), newest first, to show what's already asked for.
     const sameBusiness = l.business_name.replace(/[\\%_]/g, "\\$&"); // exact name, case-insensitive (ilike with wildcards escaped)
     const { data: dexReqs } = await sb.from("design_requests").select("id, status, created_at").ilike("business", sameBusiness).order("created_at", { ascending: false });
@@ -454,6 +530,30 @@
         ${usable(l.website_notes) ? `<p class="muted"><b>Website:</b> ${esc(l.website_status || "")} ${esc(l.website_notes)}</p>` : ""}
       </section>
 
+      <section class="card pad meets">
+        <div class="meets-head"><h3>📅 Meetings</h3>${mErr ? "" : `<button type="button" class="btn" id="meet-btn">Book a meeting</button>`}</div>
+        ${mErr ? `<p class="muted small">Meetings aren't set up yet: run <code>meetings.sql</code> in Supabase.</p>` : `
+        <form id="meet-form" class="meet-form" hidden>
+          <div class="grid">
+            <label>Date<input type="date" name="date" required value="${today()}"></label>
+            <label>Time<input type="time" name="time" required value="10:00" step="900"></label>
+            <label>Length<select name="duration">${[15, 30, 45, 60, 90].map((n) => `<option value="${n}" ${n === 30 ? "selected" : ""}>${n} min</option>`).join("")}</select></label>
+            <label>Type<select name="kind">${MEETING_KINDS.map((k) => `<option>${k}</option>`).join("")}</select></label>
+            <label class="wide">Where <span class="muted small">(address, video link or phone; optional)</span><input name="location" autocomplete="off" placeholder="${esc(usable(l.business_address) ? l.business_address : "Zoom / Google Meet link, address or phone")}"></label>
+            <label class="wide">Notes<textarea name="note" rows="2" placeholder="What's the meeting for?"></textarea></label>
+          </div>
+          <div class="row-btns"><button class="btn">Book meeting</button><button type="button" class="btn ghost" id="meet-cancel">Cancel</button></div>
+        </form>
+        ${upcoming.length ? upcoming.map((m) => `<div class="meet ${m.starts_at < nowIso ? "late" : ""}">
+            <div><b>${MEETING_ICON[m.kind] || "📅"} ${esc(fmtMeeting(m))}</b> · ${esc(m.kind)} · ${m.duration_min} min${m.starts_at < nowIso ? ` <span class="pill warn">Past, not marked done</span>` : ""}
+              ${m.location ? `<div class="muted small">${/^https?:\/\//i.test(m.location) ? `<a href="${esc(m.location)}" target="_blank" rel="noopener">${esc(m.location)}</a>` : esc(m.location)}</div>` : ""}
+              ${m.note ? `<div class="small">${esc(m.note)}</div>` : ""}</div>
+            <div class="meet-btns"><a class="btn ghost small" target="_blank" rel="noopener" href="${esc(gcalLink(m, l))}">+ Google Calendar</a>
+              <button type="button" class="btn ghost small" data-meet-done="${m.id}">✓ Done</button><button type="button" class="btn ghost small" data-meet-cancel="${m.id}">Cancel</button></div>
+          </div>`).join("") : `<p class="muted small">No meetings booked.</p>`}
+        ${pastMeets.length ? `<p class="muted small" style="margin-top:8px">Earlier: ${pastMeets.map((m) => `${esc(fmtMeeting(m))} (${m.status === "done" ? "done" : "canceled"})`).join(" · ")}</p>` : ""}`}
+      </section>
+
       ${(window.AWD_PAYMENT_LINKS || []).length ? `<section class="card pad pay">
         <h3>💳 Send payment link</h3>
         <div class="pay-row">
@@ -495,6 +595,34 @@
             <p class="muted small">Adds ${esc(l.business_name)} to Dex's queue with this lead's details. Dex never contacts the business.</p>
             <button type="button" class="btn" id="dex-btn">${dexDone ? "Have Dex build another design" : "Have Dex build a free design"}</button>`}
       </section>`;
+
+    // ---------- book / finish / cancel a meeting ----------
+    const meetBtn = document.getElementById("meet-btn"), meetForm = document.getElementById("meet-form");
+    if (meetBtn && meetForm) {
+      meetBtn.onclick = () => { meetBtn.hidden = true; meetForm.hidden = false; meetForm.scrollIntoView({ block: "center", behavior: "smooth" }); };
+      document.getElementById("meet-cancel").onclick = () => { meetForm.hidden = true; meetBtn.hidden = false; };
+      meetForm.onsubmit = async (e) => {
+        e.preventDefault();
+        const f = new FormData(meetForm);
+        const start = new Date(`${f.get("date")}T${f.get("time")}`);
+        if (isNaN(start)) return toast("Pick a date and time", true);
+        const m = { lead_id: id, starts_at: start.toISOString(), duration_min: +f.get("duration") || 30, kind: f.get("kind"),
+          location: f.get("location").trim() || null, note: f.get("note").trim() || null };
+        const { error: e1 } = await sb.from("meetings").insert(m);
+        if (e1) return fail(e1);
+        await sb.from("activities").insert({ lead_id: id, kind: "Note", note: `Meeting booked: ${fmtMeeting(m)}, ${m.kind}, ${m.duration_min} min${m.location ? ` (${m.location})` : ""}${m.note ? `\n${m.note}` : ""}` });
+        toast(`Meeting booked for ${fmtMeeting(m)}`); leadView(id);
+      };
+    }
+    app.querySelectorAll("[data-meet-done], [data-meet-cancel]").forEach((b) => b.onclick = async () => {
+      const done = !!b.dataset.meetDone, mid = b.dataset.meetDone || b.dataset.meetCancel;
+      const m = (meets || []).find((x) => x.id === mid);
+      if (!done && !confirm(`Cancel the meeting on ${fmtMeeting(m)}?`)) return;
+      const { error: e1 } = await sb.from("meetings").update({ status: done ? "done" : "canceled" }).eq("id", mid);
+      if (e1) return fail(e1);
+      await sb.from("activities").insert({ lead_id: id, kind: "Note", note: `Meeting ${done ? "held" : "canceled"}: ${fmtMeeting(m)}, ${m.kind}` });
+      toast(done ? "Marked done" : "Meeting canceled"); leadView(id);
+    });
 
     // ---------- Have Dex build a free design: queue a design_requests row from this lead ----------
     const dexBtn = document.getElementById("dex-btn");
@@ -690,6 +818,7 @@ ${links()}`;
       if (h === "/") await todayView();
       else if (h === "/inquired") await inquiredView();
       else if (["/ready", "/missing", "/called", "/disqualified"].includes(h)) await tabView(h.slice(1));
+      else if (h === "/calendar") await calendarView();
       else if (h === "/script") scriptView();
       else if (h === "/leads") await leadsView();
       else if (h === "/new") newView();
