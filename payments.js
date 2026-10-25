@@ -3,52 +3,39 @@ window.AWD_PAYMENT_LINKS = [
   {
     "key": "new_website",
     "label": "New Website",
-    "detail": "$225 today ($200 site + $25 web address setup), then $50/month starting next month",
-    "url": "https://buy.stripe.com/cNi5kE9c90h7505b7FcV205",
-    "bank_url": "https://buy.stripe.com/eVq3cw1JHd3TeAF7VtcV206",
-    "fee_line": "Paying by card adds a 3% card processing fee ($6.75 today, $1.50/month). Pay from your bank account and there's no fee.",
+    "detail": "$199 today (web address setup included), then $29/month starting next month",
+    "url": "https://buy.stripe.com/3cIbJ25ZX8ND5057VtcV20f",
+    "bank_url": "https://buy.stripe.com/fZu8wQewt1lbbotfnVcV20g",
+    "fee_line": "Paying by card adds a 3% card processing fee ($5.97 today, $0.87/month). Pay from your bank account and there's no fee.",
     "monthly": true,
     "lines": [
-      "$225 today ($200 website + $25 web address setup)",
-      "$50/month starting next month for hosting, updates and support"
+      "$199 today for your website (web address setup included, no setup fee)",
+      "$29/month starting next month for hosting, updates and support"
     ]
   },
   {
     "key": "website_upgrade",
     "label": "Website Upgrade",
-    "detail": "$200 today, then $50/month starting next month (keeps their web address)",
-    "url": "https://buy.stripe.com/eVq00k8856FvdwBcbJcV207",
-    "bank_url": "https://buy.stripe.com/28EbJ2gEB0h75050t1cV208",
-    "fee_line": "Paying by card adds a 3% card processing fee ($6 today, $1.50/month). Pay from your bank account and there's no fee.",
+    "detail": "$199 today, then $29/month starting next month (keeps their web address)",
+    "url": "https://buy.stripe.com/8x2fZi0FD8NDdwBb7FcV20h",
+    "bank_url": "https://buy.stripe.com/28EbJ2gEB9RHakpb7FcV20i",
+    "fee_line": "Paying by card adds a 3% card processing fee ($5.97 today, $0.87/month). Pay from your bank account and there's no fee.",
     "monthly": true,
     "lines": [
-      "$200 today for your new website (you keep your same web address)",
-      "$50/month starting next month for hosting, updates and support"
+      "$199 today for your new website (you keep your same web address)",
+      "$29/month starting next month for hosting, updates and support"
     ]
   },
   {
     "key": "website_only",
     "label": "Website Only",
-    "detail": "$200 one time, no monthly fee (they run the site)",
-    "url": "https://buy.stripe.com/fZu28s0FDe7X8chfnVcV209",
-    "bank_url": "https://buy.stripe.com/cNifZicol0h7eAF8ZxcV20a",
-    "fee_line": "Paying by card adds a 3% card processing fee ($6 today). Pay from your bank account and there's no fee.",
+    "detail": "$199 one time, no monthly fee (they run the site)",
+    "url": "https://buy.stripe.com/7sYaEY0FD5Br78d2B9cV20j",
+    "bank_url": "https://buy.stripe.com/4gMdRa2NLgg5fEJgrZcV20k",
+    "fee_line": "Paying by card adds a 3% card processing fee ($5.97 today). Pay from your bank account and there's no fee.",
     "monthly": false,
     "lines": [
-      "$200 one time for your website",
-      "No monthly fee: I hand the finished site over to you"
-    ]
-  },
-  {
-    "key": "website_only_domain",
-    "label": "Website Only + web address",
-    "detail": "$225 one time ($200 site + $25 web address setup), no monthly fee",
-    "url": "https://buy.stripe.com/bJe7sM885aVLakpb7FcV20b",
-    "bank_url": "https://buy.stripe.com/cNi5kEagdaVL0JP1x5cV20c",
-    "fee_line": "Paying by card adds a 3% card processing fee ($6.75 today). Pay from your bank account and there's no fee.",
-    "monthly": false,
-    "lines": [
-      "$225 one time ($200 website + $25 web address setup)",
+      "$199 one time for your website",
       "No monthly fee: I hand the finished site over to you"
     ]
   },

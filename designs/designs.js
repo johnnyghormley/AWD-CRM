@@ -12,10 +12,10 @@
   const SLABEL = Object.fromEntries(STATUSES);
   // Matches the CRM's Stripe packages (payments.js).
   const PKGS = [
-    ["new_website", "New Website", 225, 50],
-    ["website_upgrade", "Website Upgrade", 200, 50],
-    ["website_only", "Website Only", 200, 0],
-    ["website_only_domain", "Website Only + web address", 225, 0],
+    ["new_website", "New Website", 199, 29],
+    ["website_upgrade", "Website Upgrade", 199, 29],
+    ["website_only", "Website Only", 199, 0],
+    ["website_only_domain", "Website Only + web address (retired)", 225, 0],
     ["referral", "Referral Discount", 100, 25],
     ["custom", "Custom / client job", null, null]
   ];
