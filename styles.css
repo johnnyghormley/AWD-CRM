@@ -269,3 +269,12 @@ main > * { min-width: 0; }
   .cal-ev { font-size: 0; padding: 0; height: 7px; border-radius: 4px; }
   .cal-key .cal-ev { font-size: 11.5px; height: auto; padding: 2px 5px; }
 }
+
+/* Search tab (2026-10-26): find a lead by any phone format, name, business or email */
+.search-box { grid-template-columns: 1fr; }
+.search-box input { font-size: 18px; padding: 12px 14px; }
+.sres { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.sres-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.sres-head a { color: inherit; text-decoration: none; }
+.sres-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+.sres-actions .btn { white-space: normal; }

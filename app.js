@@ -45,6 +45,20 @@
   const fmtDate = (d) => d ? new Date(d + (d.length === 10 ? "T12:00:00" : "")).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "";
   const fmtTime = (d) => new Date(d).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
   const tel = (p) => (p || "").replace(/[^\d+]/g, "");
+  // Phone digits only, without a leading US "1", so (832) 496-3061, 832.496.3061 and +1 832 496 3061 all match.
+  const digits = (p) => String(p || "").replace(/\D/g, "").replace(/^1(?=\d{10}$)/, "");
+  const LEAD_PHONES = [["owner_phone", "Owner phone"], ["business_phone", "Business phone"]];
+  const LEAD_TEXT = ["business_name", "owner_name", "owner_phone", "business_phone", "owner_email", "city", "trade", "business_address", "website"];
+  // Which phone field matched the query (4+ digits typed), or "" if none did.
+  function phoneHit(rec, fields, q) {
+    const d = digits(q);
+    if (d.length < 4) return "";
+    const f = fields.find(([k]) => digits(rec[k]).includes(d));
+    return f ? f[1] : "";
+  }
+  function leadMatches(l, q) {
+    return !q || LEAD_TEXT.map((k) => l[k]).join(" ").toLowerCase().includes(q) || !!phoneHit(l, LEAD_PHONES, q);
+  }
   const usable = (v) => v && !/^(unknown|none|n\/a|not found)$/i.test(String(v).trim());
   const slug = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
   const statusClass = (s) => "st-" + slug(s);
@@ -426,7 +440,7 @@
     const draw = () => {
       const [q, st, li, ls, tr, ci] = ids.map((i) => document.getElementById(i).value.toLowerCase());
       const rows = leads.filter((l) =>
-        (!q || [l.business_name, l.owner_name, l.owner_phone, l.business_phone, l.owner_email, l.city, l.trade].join(" ").toLowerCase().includes(q)) &&
+        leadMatches(l, q) &&
         (!st || (l.call_status || "").toLowerCase() === st) && (!li || (l.list || "").toLowerCase() === li) &&
         (!ls || (l.lead_status || "").toLowerCase() === ls) && (!tr || (l.trade || "").toLowerCase() === tr) && (!ci || (l.city || "").toLowerCase() === ci));
       document.getElementById("count").textContent = `${rows.length} of ${leads.length} leads`;
@@ -440,6 +454,67 @@
       a.download = `awd-leads-${today()}.csv`; a.click();
     };
     draw();
+  }
+
+  // Search: type a phone number (any format), name, business or email; finds leads and website requests.
+  // Built for callbacks from an unknown number: shows the contact card right in the results.
+  let searchQ = "";
+  async function searchView() {
+    const [{ data: leads, error }, { data: inqs }] = await Promise.all([
+      sb.from("leads").select("*").order("updated_at", { ascending: false }),
+      sb.from("inquiries").select("*").order("created_at", { ascending: false })
+    ]);
+    if (error) return fail(error);
+    app.innerHTML = `
+      <h2 class="h">Search</h2>
+      <div class="filters search-box">
+        <input id="sq" type="search" inputmode="search" autocomplete="off" placeholder="Phone number, name, business or email" value="${esc(searchQ)}">
+      </div>
+      <p class="muted small tab-hint">Got a call from a number you don't recognize? Type it in any format (8324963061, 832-496-3061, +1 832…), or just the last 4 digits.</p>
+      <div id="sres"></div>`;
+    const box = document.getElementById("sq");
+    const card = (l, hit) => {
+      const phones = LEAD_PHONES.filter(([k]) => usable(l[k]));
+      return `<div class="card pad sres">
+        <div class="sres-head">
+          <a href="#/lead/${l.id}"><b>${esc(l.business_name)}</b></a>
+          <span class="pill ${statusClass(l.call_status)}">${esc(l.call_status)}</span>
+          ${hit ? `<span class="pill list">Matched ${esc(hit.toLowerCase())}</span>` : ""}
+        </div>
+        <div class="muted">${esc([l.owner_name, l.owner_title, l.trade, l.city].filter(usable).join(" · ")) || "No contact name"}</div>
+        <div class="sres-actions">
+          ${phones.map(([k, t]) => `<a class="btn small" href="tel:${esc(tel(l[k]))}">📞 ${esc(t)} · ${esc(l[k])}</a>`).join("")}
+          ${usable(l.owner_email) ? `<a class="btn ghost small" href="mailto:${esc(l.owner_email)}">✉ ${esc(l.owner_email)}</a>` : ""}
+          <a class="btn ghost small" href="#/lead/${l.id}">Open lead</a>
+        </div>
+        ${l.follow_up_date ? `<div class="muted small">Follow up ${fmtDate(l.follow_up_date)}${usable(l.next_step) ? " · " + esc(l.next_step) : ""}</div>` : ""}
+      </div>`;
+    };
+    const inqCard = (q, hit) => `<div class="card pad sres">
+        <div class="sres-head"><b>${esc(q.business)}</b><span class="pill">Website request · ${esc(q.status)}</span>${hit ? `<span class="pill list">Matched phone</span>` : ""}</div>
+        <div class="muted">${esc([q.name, q.trade].filter(usable).join(" · "))} · ${fmtTime(q.created_at)}</div>
+        <div class="sres-actions">
+          ${usable(q.phone) ? `<a class="btn small" href="tel:${esc(tel(q.phone))}">📞 ${esc(q.phone)}</a>` : ""}
+          ${usable(q.email) ? `<a class="btn ghost small" href="mailto:${esc(q.email)}">✉ ${esc(q.email)}</a>` : ""}
+          ${q.lead_id ? `<a class="btn ghost small" href="#/lead/${q.lead_id}">Open lead</a>` : `<a class="btn ghost small" href="#/inquired">Open Inquired</a>`}
+        </div>
+      </div>`;
+    const draw = () => {
+      searchQ = box.value.trim();
+      const q = searchQ.toLowerCase();
+      const out = document.getElementById("sres");
+      if (q.length < 2) { out.innerHTML = ""; return; }
+      const ls = leads.filter((l) => leadMatches(l, q));
+      const is = (inqs || []).filter((x) => !x.lead_id || !ls.some((l) => l.id === x.lead_id))
+        .filter((x) => [x.business, x.name, x.email, x.phone, x.trade].join(" ").toLowerCase().includes(q) || !!phoneHit(x, [["phone", "Phone"]], q));
+      out.innerHTML = (ls.length || is.length)
+        ? `<p class="muted small">${ls.length} lead${ls.length === 1 ? "" : "s"}${is.length ? `, ${is.length} website request${is.length === 1 ? "" : "s"}` : ""}</p>` +
+          ls.slice(0, 50).map((l) => card(l, phoneHit(l, LEAD_PHONES, q))).join("") + is.slice(0, 20).map((x) => inqCard(x, phoneHit(x, [["phone", "Phone"]], q))).join("")
+        : `<p class="muted pad">No lead or website request matches “${esc(searchQ)}”. <a href="#/new">+ Add it as a new lead</a></p>`;
+    };
+    box.addEventListener("input", draw);
+    draw();
+    box.focus();
   }
 
   function input([key, label, type, required], lead) {
@@ -820,6 +895,7 @@ ${links()}`;
       else if (["/ready", "/missing", "/called", "/disqualified"].includes(h)) await tabView(h.slice(1));
       else if (h === "/calendar") await calendarView();
       else if (h === "/script") scriptView();
+      else if (h === "/search") await searchView();
       else if (h === "/leads") await leadsView();
       else if (h === "/new") newView();
       else if (h === "/import") importView();
