@@ -6,16 +6,22 @@ const SUPABASE_URL = process.env.SUPABASE_URL || "https://mrklhkseyynmnjzbiokx.s
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || "sb_publishable_8SekgbrdzwUzWaMCohwznQ_wPZaOpDo";
 
 const env = (k, d = "") => (process.env[k] || d).trim();
-const settings = () => ({
-  business: env("CAMPAIGN_BUSINESS_NAME", "I Know Warehouses"),
-  from: env("CAMPAIGN_FROM"),                  // e.g. Johnathon Ghormley <john@yourdomain.com> (domain verified in Resend)
-  replyTo: env("CAMPAIGN_REPLY_TO"),           // where replies go: your everyday inbox
-  address: env("CAMPAIGN_MAILING_ADDRESS"),    // business postal address (required by CAN-SPAM)
-  live: env("CAMPAIGNS_LIVE") === "true",      // anything else = dry run only, nothing is sent
+// brand "ikw" = Campaigns-Dad (I Know Warehouses, HubSpot contacts): CAMPAIGN_* variables.
+// brand "awd" = Campaigns-Me (Affordable Web Designs drip emails to CRM leads): the same names with AWD_ in front.
+// RESEND_API_KEY is shared (both sending domains are verified in the same Resend account).
+const BRANDS = { ikw: { prefix: "", business: "I Know Warehouses" }, awd: { prefix: "AWD_", business: "Affordable Web Designs" } };
+const brandOf = (b) => (BRANDS[b] ? b : "ikw");
+const settings = (brand = "ikw") => { const p = BRANDS[brandOf(brand)].prefix; return {
+  brand: brandOf(brand),
+  business: env(p + "CAMPAIGN_BUSINESS_NAME", BRANDS[brandOf(brand)].business),
+  from: env(p + "CAMPAIGN_FROM"),                  // e.g. Johnathon Ghormley <john@yourdomain.com> (domain verified in Resend)
+  replyTo: env(p + "CAMPAIGN_REPLY_TO"),           // where replies go: your everyday inbox
+  address: env(p + "CAMPAIGN_MAILING_ADDRESS"),    // business postal address (required by CAN-SPAM)
+  live: env(p + "CAMPAIGNS_LIVE") === "true",      // anything else = dry run only, nothing is sent
   hubspot: !!env("HUBSPOT_TOKEN"),
   resend: !!env("RESEND_API_KEY"),
   webhook: !!env("RESEND_WEBHOOK_SECRET")
-});
+}; };
 
 function send(res, status, body) {
   res.statusCode = status;
@@ -68,4 +74,4 @@ async function readJson(req) {
 
 const origin = (req) => `${req.headers["x-forwarded-proto"] || "https"}://${req.headers["x-forwarded-host"] || req.headers.host}`;
 
-module.exports = { env, settings, send, requireUser, db, hubspot, readJson, origin, SUPABASE_URL, SUPABASE_ANON_KEY };
+module.exports = { env, settings, brandOf, send, requireUser, db, hubspot, readJson, origin, SUPABASE_URL, SUPABASE_ANON_KEY };

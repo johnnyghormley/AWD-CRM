@@ -50,8 +50,8 @@ module.exports = async (req, res) => {
   const action = (req.query && req.query.action) || new URL(req.url, "http://x").searchParams.get("action");
   try {
     if (action === "config") {
-      const s = settings();
-      return send(res, 200, { business: s.business, from: s.from, replyTo: s.replyTo, address: s.address, live: s.live, hubspot: s.hubspot, resend: s.resend, webhook: s.webhook });
+      const s = settings(new URL(req.url, "http://x").searchParams.get("brand"));
+      return send(res, 200, { brand: s.brand, business: s.business, from: s.from, replyTo: s.replyTo, address: s.address, live: s.live, hubspot: s.hubspot, resend: s.resend, webhook: s.webhook });
     }
     if (action === "options") {
       const p = await hubspot("/crm/v3/properties/contacts/hs_lead_status");

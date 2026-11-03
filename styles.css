@@ -447,3 +447,8 @@ body.full main { max-width: none; height: 100%; min-height: 0; padding: 0; displ
 .dex-link { font-size: 13px; overflow-wrap: anywhere; }
 .dex-built .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
 .dex-built .actions .btn { flex: 1 1 auto; width: auto; }
+
+/* Campaigns-Me: drip email steps */
+.cm-step { border: 1px solid #E5EAF0; border-radius: 10px; padding: 12px; margin: 12px 0; display: grid; gap: 8px; }
+.cm-step h4 { margin: 0; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.cm-step label { display: grid; gap: 4px; }

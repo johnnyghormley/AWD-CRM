@@ -157,10 +157,22 @@
   // "Due today or overdue". Overdue ones stay until you log the call with a new date or status; closed and
   // disqualified leads never show.
   const isDue = (l) => !!l.follow_up_date && l.follow_up_date <= today() && !CLOSED.includes(l.call_status);
-  const isFresh = (l) => l.lead_status !== "Missing Info" && l.call_status === "New";
+  // Leads with a scheduled meeting stay out of Ready (2026-11-03): the meeting is the next step, not a cold call.
+  // Loaded on every page change by route(); a meeting marked done or canceled puts the lead back.
+  let meetingLeads = new Set();
+  async function loadMeetingLeads() {
+    const { data, error } = await sb.from("meetings").select("lead_id").eq("status", "scheduled");
+    meetingLeads = error ? new Set() : new Set((data || []).map((m) => String(m.lead_id)));
+  }
+  const hasMeeting = (l) => meetingLeads.has(String(l.id));
+  // Only email (2026-11-03): no owner or business phone, but an email. They go here instead of Ready / Missing info.
+  const hasPhone = (l) => usable(l.owner_phone) || usable(l.business_phone);
+  const isOnlyEmail = (l) => !hasPhone(l) && usable(l.owner_email) && l.call_status === "New";
+  const isFresh = (l) => l.lead_status !== "Missing Info" && l.call_status === "New" && !isOnlyEmail(l);
   const TABS = [
-    ["ready", "Ready", (l) => isFresh(l) || isDue(l), "Follow-ups due today (and overdue ones), then qualified leads not called yet."],
-    ["missing", "Missing info", (l) => l.lead_status === "Missing Info" && l.call_status === "New", "Not called yet, still missing some info."],
+    ["ready", "Ready", (l) => (isFresh(l) || isDue(l)) && !hasMeeting(l), "Follow-ups due today (and overdue ones), then qualified leads not called yet. Leads with a meeting booked aren't listed here."],
+    ["missing", "Missing info", (l) => l.lead_status === "Missing Info" && l.call_status === "New" && !isOnlyEmail(l), "Not called yet, still missing some info (for example, only the company's phone, no owner phone)."],
+    ["onlyemail", "Only email", isOnlyEmail, "No phone number for the owner or the business, but there's an email. Reach them by email (or a Campaigns-Me drip), or find a phone number to move them to Ready."],
     ["called", "Called", (l) => l.call_status !== "New" && !isDq(l), "Everyone you've called. Check Follow up to move a lead into the Follow up list."],
     ["disqualified", "Disqualified", isDq, "Leads that aren't a fit. They're kept out of every other list. Tap Restore to put one back in Ready."]
   ];
@@ -351,7 +363,7 @@
     if (error) return fail(error);
     const open = (l) => !CLOSED.includes(l.call_status);
     const due = leads.filter((l) => open(l) && l.follow_up_date && l.follow_up_date <= today());
-    const fresh = leads.filter((l) => l.call_status === "New");
+    const fresh = leads.filter((l) => l.call_status === "New" && !hasMeeting(l) && !isOnlyEmail(l)); // to call: no meeting booked, has a phone
     const count = (s) => leads.filter((l) => l.call_status === s).length;
     setNavCounts(leads);
     app.innerHTML = `
@@ -1140,19 +1152,20 @@ ${links()}`;
     if (!(await session())) return loginView();
     nav.hidden = false;
     const h = location.hash.replace(/^#/, "") || "/";
-    nav.querySelectorAll("a").forEach((a) => a.classList.toggle("on", a.getAttribute("href") === "#" + h || (h.startsWith("/lead/") && a.getAttribute("href") === "#/leads") || (h.startsWith("/campaigns/") && a.getAttribute("href") === "#/campaigns")));
+    nav.querySelectorAll("a").forEach((a) => a.classList.toggle("on", a.getAttribute("href") === "#" + h || (h.startsWith("/lead/") && a.getAttribute("href") === "#/leads") || (h.startsWith("/campaigns/") && a.getAttribute("href") === "#/campaigns") || (h.startsWith("/campaigns-me/") && a.getAttribute("href") === "#/campaigns-me")));
     document.body.classList.toggle("full", h === "/designs");
     app.innerHTML = `<p class="muted pad">Loading…</p>`;
     refreshInquiryCount().catch(() => {});
+    await loadMeetingLeads().catch(() => {});
     try {
       if (h === "/") await todayView();
       else if (h === "/inquired") await inquiredView();
-      else if (["/ready", "/missing", "/called", "/disqualified"].includes(h)) await tabView(h.slice(1));
+      else if (["/ready", "/missing", "/onlyemail", "/called", "/disqualified"].includes(h)) await tabView(h.slice(1));
       else if (h === "/calendar") await calendarView();
       else if (h === "/pipeline") await pipelineView();
       else if (h === "/tasks") await tasksView();
       else if (h === "/designs") designsView();
-      else if (h === "/campaigns" || h.startsWith("/campaigns/")) await window.AWDCampaigns.view(h, { sb, app, esc, toast, fail, fmtTime, session });
+      else if (/^\/campaigns(-me)?(\/|$)/.test(h)) await window.AWDCampaigns.view(h, { sb, app, esc, toast, fail, fmtTime, session });
       else if (h === "/script") scriptView();
       else if (h === "/search") await searchView();
       else if (h === "/leads") await leadsView();
