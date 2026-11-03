@@ -439,3 +439,11 @@ body.full main { max-width: none; height: 100%; min-height: 0; padding: 0; displ
 .cm-st-draft { background: #DBEAFE; color: #1E40AF; } .cm-st-sending { background: #FEF9C3; color: #854D0E; } .cm-st-done { background: #DCFCE7; color: #166534; }
 .cm-rs-scheduled { background: #DBEAFE; color: #1E40AF; } .cm-rs-sent { background: #DCFCE7; color: #166534; } .cm-rs-failed { background: #FEE2E2; color: #991B1B; }
 @media (max-width: 1100px) { .cm-compose { grid-template-columns: minmax(0, 1fr); } }
+
+/* Lead card: design Dex built */
+.dex-built { border: 1px solid #E5EAF0; border-radius: 10px; padding: 10px; margin: 8px 0 12px; }
+.dex-built img { display: block; width: 100%; aspect-ratio: 16 / 10; object-fit: cover; object-position: top; border-radius: 6px; border: 1px solid #E5EAF0; margin-bottom: 8px; }
+.dex-built p { margin: 4px 0; }
+.dex-link { font-size: 13px; overflow-wrap: anywhere; }
+.dex-built .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.dex-built .actions .btn { flex: 1 1 auto; width: auto; }

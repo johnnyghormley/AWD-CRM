@@ -729,6 +729,27 @@
     const sameBusiness = l.business_name.replace(/[\\%_]/g, "\\$&"); // exact name, case-insensitive (ilike with wildcards escaped)
     const { data: dexReqs } = await sb.from("design_requests").select("id, status, created_at").ilike("business", sameBusiness).order("created_at", { ascending: false });
     const dexOpen = (dexReqs || []).find((r) => r.status !== "done"), dexDone = (dexReqs || []).find((r) => r.status === "done");
+    // Designs Dex built for this business (the Designs tab), with a signed screenshot link when there is one.
+    const { data: builtRows } = await sb.from("designs").select("status, preview, live, thumb, created_at").ilike("business", sameBusiness).order("created_at", { ascending: false });
+    const built = builtRows || [];
+    const thumbs = built.map((d) => d.thumb).filter(Boolean);
+    const shotUrl = {};
+    if (thumbs.length) {
+      const { data: signedShots } = await sb.storage.from("designs").createSignedUrls(thumbs, 3600);
+      (signedShots || []).forEach((r) => { if (r.signedUrl) shotUrl[r.path] = r.signedUrl; });
+    }
+    const DSTAT = { building: "Built, not sent", sent: "Sent", approved: "Approved", paid: "Paid", live: "Live", archived: "Archived" };
+    const builtHtml = built.map((d) => {
+      const prev = /^https?:\/\//i.test(d.preview || "") ? d.preview : "", live = /^https?:\/\//i.test(d.live || "") ? d.live : "";
+      const img = shotUrl[d.thumb];
+      return `<div class="dex-built">
+        ${img ? `<a href="${esc(prev || img)}" target="_blank" rel="noopener"><img src="${esc(img)}" alt="Design preview for ${esc(l.business_name)}" loading="lazy"></a>` : ""}
+        <p><span class="pill">${esc(DSTAT[d.status] || d.status)}</span> <span class="muted small">built ${fmtTime(d.created_at)}</span></p>
+        ${prev ? `<p class="dex-link"><a href="${esc(prev)}" target="_blank" rel="noopener">${esc(prev.replace(/^https?:\/\//, ""))}</a></p>
+        <div class="actions"><a class="btn ghost" href="${esc(prev)}" target="_blank" rel="noopener">Open preview</a><button type="button" class="btn ghost" data-copy="${esc(prev)}">Copy link</button></div>` : ""}
+        ${live ? `<p class="small">Live: <a href="${esc(live)}" target="_blank" rel="noopener">${esc(live.replace(/^https?:\/\/(www\.)?/, ""))}</a></p>` : ""}
+      </div>`;
+    }).join("");
     const phones = [[l.owner_phone, `Call ${usable(l.owner_name) ? l.owner_name.split(" (")[0] : "owner"}`], [l.business_phone, "Call business"]].filter(([p]) => usable(p));
     const initials = l.business_name.split(/\s+/).filter((w) => /^[a-z0-9]/i.test(w)).slice(0, 2).map((w) => w[0].toUpperCase()).join("");
     const prop = (label, v) => `<div class="prop"><dt>${label}</dt><dd>${v || '<span class="muted">—</span>'}</dd></div>`;
@@ -867,11 +888,12 @@
 
       <section class="card pad dex">
         <h3>🎨 Free design by Dex</h3>
+        ${builtHtml}
         ${dexOpen
           ? `<p><b>${dexOpen.status === "in_progress" ? "Dex is building it" : dexOpen.status === "build_requested" ? "Build requested" : dexOpen.status === "build_failed" ? "Build didn't finish" : "Queued for Dex"}</b> since ${fmtTime(dexOpen.created_at)}. Tell Claude “Dex, check the queue” to start it. Track it in <a href="#/designs">Designs</a>.</p>`
-          : `${dexDone ? `<p class="muted small">Dex already built one (requested ${fmtTime(dexDone.created_at)}). See <a href="#/designs">Designs</a>.</p>` : ""}
+          : `${dexDone && !built.length ? `<p class="muted small">Dex already built one (requested ${fmtTime(dexDone.created_at)}). See <a href="#/designs">Designs</a>.</p>` : ""}
             <p class="muted small">Adds ${esc(l.business_name)} to Dex's queue with this lead's details. Dex never contacts the business.</p>
-            <button type="button" class="btn" id="dex-btn">${dexDone ? "Have Dex build another design" : "Have Dex build a free design"}</button>`}
+            <button type="button" class="btn" id="dex-btn">${dexDone || built.length ? "Have Dex build another design" : "Have Dex build a free design"}</button>`}
       </section>
       </aside>
       </div>`;
@@ -929,6 +951,9 @@
     });
 
     // ---------- Have Dex build a free design: queue a design_requests row from this lead ----------
+    document.querySelectorAll(".dex [data-copy]").forEach((b) => (b.onclick = async () => {
+      try { await navigator.clipboard.writeText(b.dataset.copy); toast("Preview link copied"); } catch { prompt("Copy the preview link:", b.dataset.copy); }
+    }));
     const dexBtn = document.getElementById("dex-btn");
     if (dexBtn) dexBtn.onclick = async () => {
       if (!confirm(`Have Dex build a free website design for ${l.business_name}?`)) return;
