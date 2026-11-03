@@ -101,6 +101,8 @@ module.exports = async (req, res) => {
     const { campaign_id, dry_run } = await readJson(req);
     const [c] = await db(token, `campaigns?id=eq.${encodeURIComponent(campaign_id)}&select=*`);
     if (!c) return send(res, 404, { error: "Campaign not found" });
+    // Gmail campaigns are sent by Claude through Composio from Johnny's Gmail, never through Resend.
+    if (c.audience && c.audience.channel === "gmail") return send(res, 400, { error: "This campaign is sent from Gmail by Claude, not from here." });
     const awd = c.brand === "awd", P = awd ? "AWD_" : "";
     const s = settings(c.brand);
     const live = s.live && !dry_run;

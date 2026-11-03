@@ -411,6 +411,8 @@
       sb.from("campaigns").select("*").eq("id", id).single(),
       sb.from("campaign_sends").select("*").eq("campaign_id", id).order("created_at", { ascending: true }), loadConfig()]);
     if (error || !c) return ctx.fail(error || new Error("Campaign not found"));
+    // Gmail campaigns (2026-11-03): sent by Claude through Composio from Johnny's Gmail, a batch a day. This page only shows who got it and who's next.
+    if (c.audience && c.audience.channel === "gmail") return gmailView(c, rows);
     const drip = (c.steps || []).length;
     const sent = rows.filter((r) => r.sent_at && ["scheduled", "sent", "bounced"].includes(r.status));
     const n = (f) => rows.filter(f).length;
@@ -483,6 +485,49 @@
       } catch (e) { ctx.fail(e); }
       detailView(id);
     };
+  }
+
+  function gmailView(c, rows) {
+    const { sb, app, esc } = ctx;
+    const sent = rows.filter((r) => r.status === "sent" && r.sent_at).sort((a, b) => b.sent_at.localeCompare(a.sent_at));
+    const next = rows.filter((r) => r.status === "queued");
+    const n = (f) => rows.filter(f).length;
+    const tile = (label, v, sub) => `<div class="stat"><span>${label}</span><b>${v}</b>${sub ? `<span>${sub}</span>` : ""}</div>`;
+    const who = (r) => `${esc(name(r))}<div class="muted small">${r.lead_id ? `<a href="#/lead/${esc(r.lead_id)}">${esc(r.company || "lead")}</a>` : esc(r.company || "")}</div>`;
+    const state = (r) => r.unsubscribed_at ? `<span class="pill st-disqualified">Said stop</span>` : r.bounced_at ? `<span class="pill st-donotcall">Bounced</span>`
+      : r.replied_at ? `<span class="pill st-won">Replied</span>` : `<span class="pill cm-rs-sent">Sent</span>`;
+    app.innerHTML = `
+      <div class="crumbs"><a href="${B.base}">${B.title}</a> <span>›</span> ${esc(c.name)}</div>
+      <div class="page-head"><div><h2 class="h">${esc(c.name)}</h2><p class="muted small" style="margin:2px 0 0">Subject: ${esc(c.subject)}</p></div></div>
+      <p class="muted small tab-hint">Sent from Gmail by Claude (Composio), ${c.daily_cap} a day. To send the next batch, ask Claude. A "yes" reply: call them, book a meeting, then Dex builds the design.</p>
+      <section class="stats">
+        ${tile("Sent", sent.length, `${c.daily_cap}/day`)}${tile("Up next", next.length, next.length ? `next batch: ${Math.min(c.daily_cap, next.length)}` : "everyone emailed")}
+        ${tile("Replied", n((r) => r.replied_at))}${tile("Said stop", n((r) => r.unsubscribed_at))}${tile("Bounced", n((r) => r.bounced_at))}
+      </section>
+      <section class="card table-wrap"><h3 class="pad" style="margin:0">Sent <span class="muted">(${sent.length})</span></h3><table class="tbl">
+        <thead><tr><th>Contact</th><th>Email</th><th>Sent</th><th>Status</th><th></th></tr></thead>
+        <tbody>${sent.map((r) => `<tr><td>${who(r)}</td><td>${esc(r.email)}</td><td class="small">${ctx.fmtTime(r.sent_at)}</td><td>${state(r)}</td>
+          <td class="small">${r.replied_at || r.unsubscribed_at ? "" : `<button type="button" class="btn ghost small" data-replied="${r.id}">Mark replied</button> <button type="button" class="btn ghost small" data-stop="${r.id}" data-email="${esc(r.email)}">Said stop</button>`}</td></tr>`).join("")
+          || `<tr><td colspan="5" class="muted pad">Nothing sent yet.</td></tr>`}</tbody></table></section>
+      <section class="card table-wrap"><h3 class="pad" style="margin:0">Up next <span class="muted">(${next.length})</span></h3><table class="tbl">
+        <thead><tr><th>#</th><th>Contact</th><th>Email</th><th>Batch</th></tr></thead>
+        <tbody>${next.map((r, i) => `<tr><td class="small">${i + 1}</td><td>${who(r)}</td><td>${esc(r.email)}</td><td class="small">${i < c.daily_cap ? "Next batch" : `Batch ${Math.floor(i / c.daily_cap) + 2}`}</td></tr>`).join("")
+          || `<tr><td colspan="4" class="muted pad">Everyone in this campaign has been emailed.</td></tr>`}</tbody></table></section>
+      <details class="card pad"><summary><b>Email content</b></summary><p class="small"><b>Subject:</b> ${esc(c.subject)}</p><pre style="white-space:pre-wrap;font:inherit">${esc(c.body)}</pre></details>`;
+    app.querySelectorAll("[data-replied]").forEach((b) => b.onclick = async () => {
+      const { error: e1 } = await sb.from("campaign_sends").update({ replied_at: new Date().toISOString() }).eq("id", b.dataset.replied);
+      if (e1) return ctx.fail(e1);
+      detailView(c.id);
+    });
+    app.querySelectorAll("[data-stop]").forEach((b) => b.onclick = async () => {
+      if (!confirm(`Never email ${b.dataset.email} again?`)) return;
+      const now = new Date().toISOString();
+      const [{ error: e1 }, { error: e2 }] = await Promise.all([
+        sb.from("campaign_sends").update({ unsubscribed_at: now }).eq("id", b.dataset.stop),
+        sb.from("email_unsubscribes").upsert({ email: b.dataset.email.toLowerCase(), source: "replied stop" }, { onConflict: "email", ignoreDuplicates: true })]);
+      if (e1 || e2) return ctx.fail(e1 || e2);
+      detailView(c.id);
+    });
   }
 
   window.AWDCampaigns = {
