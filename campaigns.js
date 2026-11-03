@@ -488,10 +488,41 @@
     };
   }
 
-  function gmailView(c, rows) {
+  // Weekly rule (2026-11-03): every open lead with a verified email and no website gets the email once every 7 days, never more.
+  // It stops for good when they reply or say stop, and pauses while a meeting is booked or the lead is closed out.
+  // The daily sender (Claude scheduled task awd-weekly-emails) uses the same rule.
+  const WEEK_MS = 7 * 864e5;
+  const noSite = (w) => !w || /^(none|n\/a|not found|unknown|-)/i.test(String(w).trim());
+  const okEmail = (v) => v && !/^(unknown|none|n\/a|not found)$/i.test(String(v).trim());
+  async function weeklyQueue(rows) {
+    const { sb } = ctx;
+    const [{ data: leads }, { data: meets }, { data: unsubs }] = await Promise.all([
+      sb.from("leads").select("id,business_name,owner_name,owner_email,owner_email_status,website,call_status").limit(5000),
+      sb.from("meetings").select("lead_id").eq("status", "scheduled"),
+      sb.from("email_unsubscribes").select("email")]);
+    const meeting = new Set((meets || []).map((m) => String(m.lead_id)));
+    const never = new Set((unsubs || []).map((u) => u.email.toLowerCase()));
+    const byEmail = new Map();
+    rows.forEach((r) => { const e = r.email.toLowerCase(); (byEmail.get(e) || byEmail.set(e, []).get(e)).push(r); });
+    const now = Date.now();
+    return (leads || []).filter((l) => okEmail(l.owner_email) && l.owner_email_status !== "Inferred" && noSite(l.website)
+        && !["Won", "Not Interested", "Do Not Call", "Disqualified"].includes(l.call_status) && !meeting.has(String(l.id)))
+      .map((l) => {
+        const email = l.owner_email.trim(), mine = byEmail.get(email.toLowerCase()) || [];
+        if (never.has(email.toLowerCase()) || mine.some((r) => r.replied_at || r.unsubscribed_at || r.bounced_at)) return null;
+        const last = mine.filter((r) => r.sent_at).map((r) => Date.parse(r.sent_at)).sort((a, b) => b - a)[0];
+        const parts = (l.owner_name || "").split("(")[0].trim().split(/\s+/).filter((w) => !/^[A-Z]\.$/.test(w));
+        return { lead_id: l.id, email, company: l.business_name, firstname: parts[0] || "", lastname: parts.slice(1).join(" "),
+          due: last ? last + WEEK_MS : now, week: mine.filter((r) => r.sent_at).length + 1 };
+      }).filter(Boolean).sort((a, b) => a.due - b.due);
+  }
+
+  async function gmailView(c, rows) {
     const { sb, app, esc } = ctx;
     const sent = rows.filter((r) => r.status === "sent" && r.sent_at).sort((a, b) => b.sent_at.localeCompare(a.sent_at));
-    const next = rows.filter((r) => r.status === "queued");
+    const next = await weeklyQueue(rows);
+    const endOfToday = new Date(); endOfToday.setHours(23, 59, 59, 999);
+    const dueToday = next.filter((r) => r.due <= endOfToday.getTime());
     const n = (f) => rows.filter(f).length;
     const tile = (label, v, sub) => `<div class="stat"><span>${label}</span><b>${v}</b>${sub ? `<span>${sub}</span>` : ""}</div>`;
     const who = (r) => `${esc(name(r))}<div class="muted small">${r.lead_id ? `<a href="#/lead/${esc(r.lead_id)}">${esc(r.company || "lead")}</a>` : esc(r.company || "")}</div>`;
@@ -500,9 +531,9 @@
     app.innerHTML = `
       <div class="crumbs"><a href="${B.base}">${B.title}</a> <span>›</span> ${esc(c.name)}</div>
       <div class="page-head"><div><h2 class="h">${esc(c.name)}</h2><p class="muted small" style="margin:2px 0 0">Subject: ${esc(c.subject)}</p></div></div>
-      <p class="muted small tab-hint">Sent from Gmail by Claude (Composio), ${c.daily_cap} a day. To send the next batch, ask Claude. A "yes" reply: call them, book a meeting, then Dex builds the design.</p>
+      <p class="muted small tab-hint">Sent from Gmail by Claude (Composio) every day at 10 AM, up to ${c.daily_cap} a day. Every open lead with a verified email and no website gets this email once a week, never more often. It stops when they reply, say stop or get closed out, and pauses while a meeting is booked. A "yes": call them, book a meeting, then Dex builds the design.</p>
       <section class="stats">
-        ${tile("Sent", sent.length, `${c.daily_cap}/day`)}${tile("Up next", next.length, next.length ? `next batch: ${Math.min(c.daily_cap, next.length)}` : "everyone emailed")}
+        ${tile("Emails sent", sent.length, `${c.daily_cap}/day max`)}${tile("Up next", next.length, `${Math.min(c.daily_cap, dueToday.length)} due today`)}
         ${tile("Replied", n((r) => r.replied_at))}${tile("Said stop", n((r) => r.unsubscribed_at))}${tile("Bounced", n((r) => r.bounced_at))}
       </section>
       <section class="card table-wrap"><h3 class="pad" style="margin:0">Sent <span class="muted">(${sent.length})</span></h3><table class="tbl">
@@ -511,9 +542,10 @@
           <td class="small">${r.replied_at || r.unsubscribed_at ? "" : `<button type="button" class="btn ghost small" data-replied="${r.id}">Mark replied</button> <button type="button" class="btn ghost small" data-stop="${r.id}" data-email="${esc(r.email)}">Said stop</button>`}</td></tr>`).join("")
           || `<tr><td colspan="5" class="muted pad">Nothing sent yet.</td></tr>`}</tbody></table></section>
       <section class="card table-wrap"><h3 class="pad" style="margin:0">Up next <span class="muted">(${next.length})</span></h3><table class="tbl">
-        <thead><tr><th>#</th><th>Contact</th><th>Email</th><th>Batch</th></tr></thead>
-        <tbody>${next.map((r, i) => `<tr><td class="small">${i + 1}</td><td>${who(r)}</td><td>${esc(r.email)}</td><td class="small">${i < c.daily_cap ? "Next batch" : `Batch ${Math.floor(i / c.daily_cap) + 2}`}</td></tr>`).join("")
-          || `<tr><td colspan="4" class="muted pad">Everyone in this campaign has been emailed.</td></tr>`}</tbody></table></section>
+        <thead><tr><th>#</th><th>Contact</th><th>Email</th><th>Week</th><th>Due</th></tr></thead>
+        <tbody>${next.map((r, i) => `<tr><td class="small">${i + 1}</td><td>${who(r)}</td><td>${esc(r.email)}</td><td class="small">${r.week === 1 ? "1st email" : `Email ${r.week}`}</td>
+          <td class="small">${r.due <= endOfToday.getTime() ? (i < c.daily_cap ? "Today" : "Today (over the daily limit: tomorrow)") : new Date(r.due).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}</td></tr>`).join("")
+          || `<tr><td colspan="5" class="muted pad">No one to email right now.</td></tr>`}</tbody></table></section>
       <details class="card pad"><summary><b>Email content</b></summary><p class="small"><b>Subject:</b> ${esc(c.subject)}</p><pre style="white-space:pre-wrap;font:inherit">${esc(c.body)}</pre></details>`;
     app.querySelectorAll("[data-replied]").forEach((b) => b.onclick = async () => {
       const { error: e1 } = await sb.from("campaign_sends").update({ replied_at: new Date().toISOString() }).eq("id", b.dataset.replied);

@@ -165,14 +165,26 @@
     meetingLeads = error ? new Set() : new Set((data || []).map((m) => String(m.lead_id)));
   }
   const hasMeeting = (l) => meetingLeads.has(String(l.id));
-  // Only email (2026-11-03): no owner or business phone, but an email. They go here instead of Ready / Missing info.
+  // Calls logged per lead (activities of kind Call). Loaded with the meetings on every page change.
+  let callCounts = new Map();
+  async function loadCallCounts() {
+    const { data, error } = await sb.from("activities").select("lead_id").eq("kind", "Call").limit(20000);
+    callCounts = new Map();
+    if (!error) (data || []).forEach((a) => callCounts.set(String(a.lead_id), (callCounts.get(String(a.lead_id)) || 0) + 1));
+  }
+  const callsOf = (l) => callCounts.get(String(l.id)) || 0;
+  // Called out (2026-11-03): called 3 or more times and still open. With an email they leave Ready for Only email
+  // (and the weekly Gmail email); without one, logging the 3rd call sets the next call 30 days out.
+  const CALLS_MAX = 3;
+  const calledOut = (l) => callsOf(l) >= CALLS_MAX && !CLOSED.includes(l.call_status);
+  // Only email (2026-11-03): no owner or business phone, but an email, or called out with an email. They go here instead of Ready / Missing info.
   const hasPhone = (l) => usable(l.owner_phone) || usable(l.business_phone);
-  const isOnlyEmail = (l) => !hasPhone(l) && usable(l.owner_email) && l.call_status === "New";
+  const isOnlyEmail = (l) => usable(l.owner_email) && ((!hasPhone(l) && l.call_status === "New") || (calledOut(l) && !hasMeeting(l)));
   const isFresh = (l) => l.lead_status !== "Missing Info" && l.call_status === "New" && !isOnlyEmail(l);
   const TABS = [
-    ["ready", "Ready", (l) => (isFresh(l) || isDue(l)) && !hasMeeting(l), "Follow-ups due today (and overdue ones), then qualified leads not called yet. Leads with a meeting booked aren't listed here."],
+    ["ready", "Ready", (l) => (isFresh(l) || isDue(l)) && !hasMeeting(l) && !isOnlyEmail(l), "Follow-ups due today (and overdue ones), then qualified leads not called yet. Leads with a meeting booked, or called 3 times and reachable by email, aren't listed here."],
     ["missing", "Missing info", (l) => l.lead_status === "Missing Info" && l.call_status === "New" && !isOnlyEmail(l), "Not called yet, still missing some info (for example, only the company's phone, no owner phone)."],
-    ["onlyemail", "Only email", isOnlyEmail, "No phone number for the owner or the business, but there's an email. Reach them by email (or a Campaigns-Me drip), or find a phone number to move them to Ready."],
+    ["onlyemail", "Only email", isOnlyEmail, "Leads with an email but no phone number, plus leads called 3 times that have an email. They get the weekly Gmail email (Campaigns-Me) instead of calls."],
     ["called", "Called", (l) => l.call_status !== "New" && !isDq(l), "Everyone you've called. Check Follow up to move a lead into the Follow up list."],
     ["disqualified", "Disqualified", isDq, "Leads that aren't a fit. They're kept out of every other list. Tap Restore to put one back in Ready."]
   ];
@@ -362,7 +374,7 @@
     const { data: leads, error } = await sb.from("leads").select("*").order("follow_up_date", { ascending: true, nullsFirst: false });
     if (error) return fail(error);
     const open = (l) => !CLOSED.includes(l.call_status);
-    const due = leads.filter((l) => open(l) && l.follow_up_date && l.follow_up_date <= today());
+    const due = leads.filter((l) => open(l) && l.follow_up_date && l.follow_up_date <= today() && !isOnlyEmail(l));
     const fresh = leads.filter((l) => l.call_status === "New" && !hasMeeting(l) && !isOnlyEmail(l)); // to call: no meeting booked, has a phone
     const count = (s) => leads.filter((l) => l.call_status === s).length;
     setNavCounts(leads);
@@ -1006,8 +1018,17 @@
       // A text, email or note on a New lead keeps it New unless a status was picked on purpose.
       if (f.get("kind") === "Call" && status === "New") status = "Called";
       else if (f.get("kind") !== "Call" && l.call_status === "New" && status === "Called" && !statusTouched) status = "New";
+      // 3rd call (2026-11-03): with an email the lead moves to Only email and the weekly email; without one,
+      // Abby rechecks for an email and the next call is exactly 30 days out.
+      const thirdCall = f.get("kind") === "Call" && callsOf(l) + 1 >= CALLS_MAX && !CLOSED.includes(status);
+      let outLine = "";
+      if (thirdCall && usable(l.owner_email)) outLine = `Called ${callsOf(l) + 1} times: moved to Only email (weekly email)`;
+      else if (thirdCall) {
+        const d = new Date(); d.setDate(d.getDate() + 30); fu = d.toLocaleDateString("en-CA");
+        outLine = `Called ${callsOf(l) + 1} times, no email: Abby rechecks for one. Next call ${fu}`;
+      }
       const statusChanged = status !== l.call_status;
-      const parts = [dqLine, note, statusChanged ? `Status: ${l.call_status} → ${status}` : ""].filter(Boolean);
+      const parts = [dqLine, note, statusChanged ? `Status: ${l.call_status} → ${status}` : "", outLine].filter(Boolean);
       if (!parts.length && !outcome && fu === (l.follow_up_date || null)) return toast("Nothing to save", true);
       if (parts.length || outcome) {
         const { error: e1 } = await sb.from("activities").insert({ lead_id: id, kind: f.get("kind"), outcome: outcome || null, note: parts.join("\n") });
@@ -1156,7 +1177,7 @@ ${links()}`;
     document.body.classList.toggle("full", h === "/designs");
     app.innerHTML = `<p class="muted pad">Loading…</p>`;
     refreshInquiryCount().catch(() => {});
-    await loadMeetingLeads().catch(() => {});
+    await Promise.all([loadMeetingLeads().catch(() => {}), loadCallCounts().catch(() => {})]);
     try {
       if (h === "/") await todayView();
       else if (h === "/inquired") await inquiredView();
