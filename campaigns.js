@@ -36,6 +36,7 @@
       <iframe class="cm-prev-body" sandbox="" srcdoc="${ctx.esc(mail.html)}" title="Email preview"></iframe></div>`;
 
   function setupCard() {
+    if (brand === "awd") return ""; // Campaigns-Me (2026-11-03): no setup box; AWD emails go out from Gmail through Claude
     if (!config) return `<section class="card pad cm-setup"><h3>Setup</h3><p class="muted small">${ctx.esc(configErr || "Checking…")}</p></section>`;
     const item = (ok, label, hint) => `<li class="${ok ? "ok" : "todo"}"><span>${ok ? "✓" : "○"}</span><div><b>${label}</b>${hint ? `<div class="muted small">${hint}</div>` : ""}</div></li>`;
     return `<section class="card pad cm-setup">
