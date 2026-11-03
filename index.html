@@ -8,38 +8,49 @@
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<meta name="theme-color" content="#1F2937">
+<meta name="theme-color" content="#FFFFFF">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="AWD CRM">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Montserrat:wght@700;800&family=Orbitron:wght@600;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=21">
+<link rel="stylesheet" href="styles.css?v=22">
 </head>
 <body>
-<header class="bar">
-  <button id="reload" class="reload" type="button" title="Reload" aria-label="Reload page" onclick="location.reload()"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg></button>
-  <a href="#/" class="brand">
-    <svg viewBox="0 0 64 64" width="30" height="30" aria-hidden="true"><rect x="4" y="4" width="56" height="56" rx="12" fill="#FACC15"/><path d="M16 49 L32 15 L48 49" fill="none" stroke="#1F2937" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/><path d="M23 37 H41" stroke="#1F2937" stroke-width="6" stroke-linecap="round"/></svg>
-    <span>AWD CRM</span>
-  </a>
+<div class="shell">
+<aside class="side">
+  <div class="side-top">
+    <a href="#/" class="brand">
+      <svg viewBox="0 0 64 64" width="28" height="28" aria-hidden="true"><rect x="4" y="4" width="56" height="56" rx="12" fill="#FACC15"/><path d="M16 49 L32 15 L48 49" fill="none" stroke="#1F2937" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/><path d="M23 37 H41" stroke="#1F2937" stroke-width="6" stroke-linecap="round"/></svg>
+      <span>AWD CRM</span>
+    </a>
+    <button id="reload" class="reload" type="button" title="Reload" aria-label="Reload page" onclick="location.reload()"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg></button>
+  </div>
   <nav id="nav" hidden>
-    <a href="#/search">🔍 Search</a>
-    <a href="#/">Today</a>
-    <a href="#/inquired">Inquired <span class="nav-count" data-count="inquired"></span></a>
-    <a href="#/ready">Ready <span class="nav-count" data-count="ready"></span></a>
-    <a href="#/missing">Missing info <span class="nav-count" data-count="missing"></span></a>
-    <a href="#/called">Called <span class="nav-count" data-count="called"></span></a>
-    <a href="#/disqualified">Disqualified <span class="nav-count" data-count="disqualified"></span></a>
-    <a href="#/calendar">Calendar</a>
-    <a href="#/script">Script</a>
-    <a href="/designs/">Designs</a>
-    <a href="#/leads">Leads</a>
-    <a href="#/new">+ Add</a>
-    <a href="#/import">Import</a>
-    <button id="install" class="linkbtn install" hidden>⬇ Install app</button>
-    <button id="signout" class="linkbtn">Sign out</button>
+    <a href="#/search"><i>🔍</i>Search</a>
+    <a href="#/"><i>🏠</i>Today</a>
+    <a href="#/inquired"><i>📥</i>Inquired <span class="nav-count" data-count="inquired"></span></a>
+    <div class="nav-h">Leads</div>
+    <a href="#/leads"><i>👥</i>All leads</a>
+    <a href="#/ready"><i>📞</i>Ready <span class="nav-count" data-count="ready"></span></a>
+    <a href="#/missing"><i>❓</i>Missing info <span class="nav-count" data-count="missing"></span></a>
+    <a href="#/called"><i>✅</i>Called <span class="nav-count" data-count="called"></span></a>
+    <a href="#/disqualified"><i>🚫</i>Disqualified <span class="nav-count" data-count="disqualified"></span></a>
+    <div class="nav-h">Sales</div>
+    <a href="#/pipeline"><i>📊</i>Pipeline</a>
+    <a href="#/tasks"><i>☑️</i>Tasks <span class="nav-count" data-count="tasks"></span></a>
+    <a href="#/calendar"><i>📅</i>Calendar</a>
+    <div class="nav-h">Tools</div>
+    <a href="#/script"><i>📝</i>Script</a>
+    <a href="/designs/"><i>🎨</i>Designs</a>
+    <a href="#/new"><i>＋</i>Add lead</a>
+    <a href="#/import"><i>⬆</i>Import</a>
+    <div class="nav-foot">
+      <button id="install" class="linkbtn install" hidden>⬇ Install app</button>
+      <button id="signout" class="linkbtn">Sign out</button>
+    </div>
   </nav>
-</header>
+</aside>
 <main id="app"><p class="muted pad">Loading…</p></main>
+</div>
 <div id="toast" class="toast" hidden></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -49,6 +60,6 @@
 <script src="scripts.js?v=5"></script>
 <script src="payments.js?v=2"></script>
 <script src="payemail.js?v=2"></script>
-<script src="app.js?v=32"></script>
+<script src="app.js?v=33"></script>
 </body>
 </html>

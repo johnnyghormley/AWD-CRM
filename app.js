@@ -13,6 +13,10 @@
   const LEAD_STATUSES = ["Qualified", "Missing Info"];
   const CLOSED = ["Won", "Not Interested", "Do Not Call", "Disqualified"];
   const KINDS = ["Call", "Text", "Email", "Design sent", "Note"];
+  // Lead page activity timeline: filter tabs and icons per activity kind.
+  const TL_TABS = [["all", "All"], ["Call", "Calls"], ["Note", "Notes"], ["Email", "Emails"], ["Text", "Texts"], ["Design sent", "Designs"]];
+  const TL_ICON = { Call: "📞", Note: "📝", Email: "✉️", Text: "💬", "Design sent": "🎨" };
+  const tlKind = (a, k) => k === "all" || a.kind === k;
   const DNC_REASON = "Asked not to be called again";
   // "Does not speak English" is only a choice in the Log a call form: saving it disqualifies the lead (it's never stored as a status).
   const NO_ENGLISH = "Does not speak English";
@@ -167,6 +171,9 @@
       const b = nav.querySelector(`[data-count="${k}"]`);
       if (b) b.textContent = leads.filter(test).length;
     });
+    // Tasks badge: open follow-ups due today or overdue.
+    const tb = nav.querySelector('[data-count="tasks"]');
+    if (tb) tb.textContent = leads.filter(isDue).length || "";
   }
 
   // Disqualify reason = the newest "Disqualified: ..." note on the lead.
@@ -517,6 +524,156 @@
     box.focus();
   }
 
+  // Change a lead's call status from the Pipeline board and log it like the lead page does.
+  async function setStatus(l, to) {
+    const from = l.call_status;
+    if (from === to) return true;
+    const { error: e1 } = await sb.from("leads").update({ call_status: to }).eq("id", l.id);
+    if (e1) { fail(e1); return false; }
+    await sb.from("activities").insert({ lead_id: l.id, kind: "Note", note: `Status: ${from} → ${to}` });
+    l.call_status = to;
+    toast(`${l.business_name} moved to ${to}`);
+    return true;
+  }
+
+  // ---------- Pipeline: board of every open lead by call status; drag a card (or pick on a phone) to move it ----------
+  // Disqualified / Do Not Call need a reason, so they stay on the Disqualified tab and aren't columns here.
+  const PIPE = ["New", "Called", "Callback", "Follow Up", "Design Sent", "Won", "Not Interested"];
+  let pipeQ = "", pipeList = "";
+  async function pipelineView() {
+    const { data: leads, error } = await sb.from("leads").select("*").order("updated_at", { ascending: false });
+    if (error) return fail(error);
+    setNavCounts(leads);
+    app.innerHTML = `
+      <div class="page-head">
+        <h2 class="h">Pipeline</h2>
+        <div class="page-tools">
+          <input id="pq" type="search" placeholder="Search business, owner, phone…" value="${esc(pipeQ)}">
+          <select id="pl"><option value="">Lists A + B</option>${["A", "B"].map((x) => `<option value="${x}" ${pipeList === x ? "selected" : ""}>List ${x}</option>`).join("")}</select>
+        </div>
+      </div>
+      <p class="muted small tab-hint">Drag a card to another column to change its call status (it's logged in the lead's history). On a phone, use the menu on the card. Disqualified leads are on the <a href="#/disqualified">Disqualified</a> tab.</p>
+      <div class="board-wrap"><div class="board" id="board"></div></div>`;
+    const card = (l) => {
+      const phone = usable(l.owner_phone) ? l.owner_phone : l.business_phone;
+      const late = l.follow_up_date && l.follow_up_date < today() && !CLOSED.includes(l.call_status);
+      return `<div class="bcard" draggable="true" data-id="${l.id}" data-href="#/lead/${l.id}">
+        <a class="bcard-name" href="#/lead/${l.id}">${esc(l.business_name)}</a>
+        <span class="small">${usable(l.owner_name) ? esc(l.owner_name.split(" (")[0]) : '<span class="no-contact">No contact name</span>'}</span>
+        <span class="muted small">${esc([l.city, l.list && "List " + l.list].filter(usable).join(" · "))}</span>
+        ${l.lead_status === "Missing Info" ? `<span class="trow-missing">Missing info</span>` : ""}
+        ${l.follow_up_date ? `<span class="due ${late ? "late" : ""}">${late ? "Overdue · " : "Follow up "}${fmtDate(l.follow_up_date)}</span>` : ""}
+        <div class="bcard-foot">
+          ${usable(phone) ? `<a class="bcard-call" href="tel:${esc(tel(phone))}">📞 ${esc(phone)}</a>` : `<span class="muted small">No phone</span>`}
+          <select class="bmove" data-id="${l.id}" aria-label="Move to">${PIPE.map((s) => `<option ${s === l.call_status ? "selected" : ""}>${s}</option>`).join("")}</select>
+        </div>
+      </div>`;
+    };
+    const draw = () => {
+      pipeQ = document.getElementById("pq").value.trim(); pipeList = document.getElementById("pl").value;
+      const q = pipeQ.toLowerCase();
+      const shown = leads.filter((l) => PIPE.includes(l.call_status) && leadMatches(l, q) && (!pipeList || l.list === pipeList));
+      document.getElementById("board").innerHTML = PIPE.map((s) => {
+        const col = shown.filter((l) => l.call_status === s);
+        return `<section class="bcol" data-status="${esc(s)}">
+          <header class="bcol-head"><span class="pill ${statusClass(s)}">${esc(s)}</span><b>${col.length}</b></header>
+          <div class="bcol-body">${col.map(card).join("") || `<p class="muted small bcol-empty">Drop a lead here</p>`}</div>
+        </section>`;
+      }).join("");
+    };
+    const move = async (id, to) => {
+      const l = leads.find((x) => String(x.id) === String(id));
+      if (l && (await setStatus(l, to))) draw();
+    };
+    const board = document.getElementById("board");
+    board.addEventListener("click", (e) => { const c = e.target.closest(".bcard"); if (c && !e.target.closest("a, select")) location.hash = c.dataset.href; });
+    board.addEventListener("change", (e) => { if (e.target.matches(".bmove")) move(e.target.dataset.id, e.target.value); });
+    board.addEventListener("dragstart", (e) => { const c = e.target.closest(".bcard"); if (!c) return; e.dataTransfer.setData("text/plain", c.dataset.id); e.dataTransfer.effectAllowed = "move"; c.classList.add("dragging"); });
+    board.addEventListener("dragend", (e) => { const c = e.target.closest(".bcard"); if (c) c.classList.remove("dragging"); });
+    board.addEventListener("dragover", (e) => { const col = e.target.closest(".bcol"); if (!col) return; e.preventDefault(); board.querySelectorAll(".bcol.over").forEach((x) => x !== col && x.classList.remove("over")); col.classList.add("over"); });
+    board.addEventListener("dragleave", (e) => { const col = e.target.closest(".bcol"); if (col && !col.contains(e.relatedTarget)) col.classList.remove("over"); });
+    board.addEventListener("drop", (e) => {
+      const col = e.target.closest(".bcol"); if (!col) return;
+      e.preventDefault(); col.classList.remove("over");
+      move(e.dataTransfer.getData("text/plain"), col.dataset.status);
+    });
+    ["pq", "pl"].forEach((i) => document.getElementById(i).addEventListener("input", draw));
+    draw();
+  }
+
+  // ---------- Tasks: every open follow-up date and booked meeting as a to-do, with due dates ----------
+  // Completing a follow-up clears the lead's follow-up date (same as clearing it on the lead page) and logs it;
+  // completing a meeting marks it done, like ✓ Done on the lead page.
+  let taskTab = "due";
+  async function tasksView() {
+    const [{ data: leads, error }, { data: meets, error: mErr }] = await Promise.all([
+      sb.from("leads").select("id,business_name,owner_name,owner_phone,business_phone,call_status,follow_up_date,next_step").not("follow_up_date", "is", null),
+      sb.from("meetings").select("*, leads(business_name, owner_name, owner_phone, business_phone)").eq("status", "scheduled").order("starts_at", { ascending: true })
+    ]);
+    if (error) return fail(error);
+    const t = today();
+    const tasks = [
+      ...(leads || []).filter((l) => !CLOSED.includes(l.call_status)).map((l) => ({ type: "fu", id: l.id, day: l.follow_up_date, lead: l.id, l,
+        title: usable(l.next_step) ? l.next_step : "Follow up", who: l.business_name, contact: l.owner_name, phone: usable(l.owner_phone) ? l.owner_phone : l.business_phone, sort: "" })),
+      ...(mErr ? [] : meets || []).map((m) => ({ type: "meet", id: m.id, day: localDay(m.starts_at), lead: m.lead_id, m,
+        title: `${m.kind} · ${new Date(m.starts_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`, who: (m.leads && m.leads.business_name) || "Lead",
+        contact: m.leads && m.leads.owner_name, phone: m.leads && (usable(m.leads.owner_phone) ? m.leads.owner_phone : m.leads.business_phone), sort: m.starts_at }))
+    ].sort((a, b) => a.day.localeCompare(b.day) || a.sort.localeCompare(b.sort));
+    const TT = [["due", "Due today", (x) => x.day <= t], ["upcoming", "Upcoming", (x) => x.day > t], ["all", "All open", () => true]];
+    const b = nav.querySelector('[data-count="tasks"]');
+    if (b) b.textContent = tasks.filter((x) => x.type === "fu" && x.day <= t).length || "";
+    const draw = () => {
+      const [, , test] = TT.find(([k]) => k === taskTab);
+      const rows = tasks.filter(test);
+      app.innerHTML = `
+        <div class="page-head"><h2 class="h">Tasks</h2></div>
+        <div class="tabs" role="tablist">${TT.map(([k, label, f]) => `<button type="button" role="tab" class="${k === taskTab ? "on" : ""}" data-tt="${k}">${label} <span>${tasks.filter(f).length}</span></button>`).join("")}</div>
+        <div class="card table-wrap"><table class="tbl">
+          <thead><tr><th class="ck"></th><th>Task</th><th>Lead</th><th>Type</th><th>Due</th><th>Phone</th></tr></thead>
+          <tbody>${rows.map((x) => {
+            const late = x.day < t;
+            return `<tr>
+              <td class="ck"><input type="checkbox" data-done="${x.type}:${x.id}" aria-label="Mark done"></td>
+              <td><b>${esc(x.title)}</b></td>
+              <td><a href="#/lead/${x.lead}">${esc(x.who)}</a>${usable(x.contact) ? `<div class="muted small">${esc(x.contact.split(" (")[0])}</div>` : ""}</td>
+              <td><span class="agenda-tag ${x.type}">${x.type === "meet" ? "Meeting" : "Follow-up"}</span></td>
+              <td class="${late ? "late" : ""}">${x.type === "fu" ? `<input type="date" class="due-in" data-resched="${x.id}" value="${esc(x.day)}" aria-label="Due date">` : fmtDate(x.day)}${late ? `<div class="small">Overdue</div>` : ""}</td>
+              <td>${usable(x.phone) ? `<a class="tbl-call" href="tel:${esc(tel(x.phone))}">${esc(x.phone)}</a>` : `<span class="muted small">—</span>`}</td>
+            </tr>`;
+          }).join("") || `<tr><td colspan="6" class="muted pad">${taskTab === "due" ? "Nothing due today. Nice." : "No tasks here."}</td></tr>`}</tbody>
+        </table></div>
+        <p class="muted small tab-hint">Tasks come from each open lead's follow-up date and from booked meetings. Check one off when it's done, or change the date to reschedule it. Both are logged in the lead's history.</p>`;
+      app.querySelectorAll("[data-tt]").forEach((x) => x.onclick = () => { taskTab = x.dataset.tt; draw(); });
+      app.querySelectorAll("[data-done]").forEach((cb) => cb.onchange = async () => {
+        const [type, id] = cb.dataset.done.split(":");
+        const x = tasks.find((k) => k.type === type && String(k.id) === id);
+        cb.disabled = true;
+        if (type === "fu") {
+          const { error: e1 } = await sb.from("leads").update({ follow_up_date: null }).eq("id", id);
+          if (e1) { cb.checked = false; cb.disabled = false; return fail(e1); }
+          await sb.from("activities").insert({ lead_id: id, kind: "Note", note: `Follow-up done: ${x.title} (was due ${fmtDate(x.day)})` });
+        } else {
+          const { error: e1 } = await sb.from("meetings").update({ status: "done" }).eq("id", id);
+          if (e1) { cb.checked = false; cb.disabled = false; return fail(e1); }
+          await sb.from("activities").insert({ lead_id: x.lead, kind: "Note", note: `Meeting held: ${fmtMeeting(x.m)}, ${x.m.kind}` });
+        }
+        tasks.splice(tasks.indexOf(x), 1);
+        toast(`Done: ${x.who}`); draw();
+      });
+      app.querySelectorAll("[data-resched]").forEach((inp) => inp.onchange = async () => {
+        const x = tasks.find((k) => k.type === "fu" && String(k.id) === inp.dataset.resched);
+        const to = inp.value || null;
+        if (!to) { inp.value = x.day; return toast("Pick a date, or check the task off instead", true); }
+        const { error: e1 } = await sb.from("leads").update({ follow_up_date: to }).eq("id", x.id);
+        if (e1) { inp.value = x.day; return fail(e1); }
+        await sb.from("activities").insert({ lead_id: x.id, kind: "Note", note: `Follow-up moved: ${fmtDate(x.day)} → ${fmtDate(to)}` });
+        x.day = to; tasks.sort((a, c) => a.day.localeCompare(c.day) || a.sort.localeCompare(c.sort));
+        toast(`Follow-up moved to ${fmtDate(to)}`); draw();
+      });
+    };
+    draw();
+  }
+
   function input([key, label, type, required], lead) {
     const v = lead[key] ?? "";
     if (Array.isArray(type)) {
@@ -567,19 +724,35 @@
     const { data: dexReqs } = await sb.from("design_requests").select("id, status, created_at").ilike("business", sameBusiness).order("created_at", { ascending: false });
     const dexOpen = (dexReqs || []).find((r) => r.status !== "done"), dexDone = (dexReqs || []).find((r) => r.status === "done");
     const phones = [[l.owner_phone, `Call ${usable(l.owner_name) ? l.owner_name.split(" (")[0] : "owner"}`], [l.business_phone, "Call business"]].filter(([p]) => usable(p));
+    const initials = l.business_name.split(/\s+/).filter((w) => /^[a-z0-9]/i.test(w)).slice(0, 2).map((w) => w[0].toUpperCase()).join("");
+    const prop = (label, v) => `<div class="prop"><dt>${label}</dt><dd>${v || '<span class="muted">—</span>'}</dd></div>`;
+    const txt = (v) => usable(v) ? esc(v) : "";
+    const link = (u) => usable(u) && /^\S+\.\S+$/.test(u.trim()) ? `<a href="${esc(/^https?:/i.test(u) ? u : "https://" + u)}" target="_blank" rel="noopener">${esc(u.replace(/^https?:\/\/(www\.)?/i, "").replace(/\/$/, ""))}</a>` : "";
+    const telLink = (p) => usable(p) ? `<a href="tel:${esc(tel(p))}">${esc(p)}</a>` : "";
     app.innerHTML = `
-      <section class="card pad">
-        <div class="head">
+      <div class="crumbs"><a href="#/leads">Leads</a> <span>›</span> ${esc(l.business_name)}</div>
+      <div class="record">
+      <aside class="rec-left">
+      <section class="card pad rec-head">
+        <div class="rec-id">
+          <div class="avatar">${esc(initials || "?")}</div>
           <div>
             <h2>${esc(l.business_name)}</h2>
             <p class="muted">${esc([l.trade, l.city].filter(usable).join(" · "))}</p>
             <p>${usable(l.owner_name) ? `<b>${esc(l.owner_name)}</b>${usable(l.owner_title) ? ", " + esc(l.owner_title) : ""}` : `<span class="pill warn">No owner name</span>`}</p>
           </div>
-          <div class="pills">
-            <span class="pill ${statusClass(l.call_status)}">${esc(l.call_status)}</span>
-            ${l.list ? `<span class="pill list">List ${esc(l.list)} · Package ${esc(l.list)}</span>` : ""}
-            ${l.lead_status === "Missing Info" ? `<span class="pill warn">Missing: ${esc(l.missing || "info")}</span>` : ""}
-          </div>
+        </div>
+        <div class="pills">
+          <span class="pill ${statusClass(l.call_status)}">${esc(l.call_status)}</span>
+          ${l.list ? `<span class="pill list">List ${esc(l.list)} · Package ${esc(l.list)}</span>` : ""}
+          ${l.lead_status === "Missing Info" ? `<span class="pill warn">Missing: ${esc(l.missing || "info")}</span>` : ""}
+        </div>
+        <div class="quick">
+          <button type="button" data-quick="note"><i>📝</i>Note</button>
+          ${usable(l.owner_email) ? `<a href="mailto:${esc(l.owner_email)}"><i>✉️</i>Email</a>` : ""}
+          ${phones.length ? `<a href="tel:${esc(tel(phones[0][0]))}"><i>📞</i>Call</a>` : ""}
+          ${mErr ? "" : `<button type="button" data-quick="meet"><i>📅</i>Meeting</button>`}
+          <button type="button" data-quick="dex"><i>🎨</i>Design</button>
         </div>
         <div class="actions">
           ${phones.map(([p, t]) => `<a class="btn" href="tel:${esc(tel(p))}">📞 ${esc(t)} · ${esc(p)}</a>`).join("")}
@@ -602,11 +775,56 @@
           </form>`}
         </div>
         ${usable(l.rapport_note) ? `<p class="rapport"><b>Opener:</b> ${esc(l.rapport_note)}</p>` : ""}
-        ${usable(l.website_notes) ? `<p class="muted"><b>Website:</b> ${esc(l.website_status || "")} ${esc(l.website_notes)}</p>` : ""}
       </section>
 
+      <section class="card about">
+        <h3 class="sec-h">About this lead</h3>
+        <dl class="props">
+          ${prop("Call status", `<span class="pill ${statusClass(l.call_status)}">${esc(l.call_status)}</span>`)}
+          ${prop("Follow-up date", l.follow_up_date ? fmtDate(l.follow_up_date) : "")}
+          ${prop("Next step", txt(l.next_step))}
+          ${prop("Lead status", txt(l.lead_status))}
+          ${prop("Owner phone", telLink(l.owner_phone) + (usable(l.owner_phone_type) ? ` <span class="muted small">${esc(l.owner_phone_type)}</span>` : ""))}
+          ${prop("Business phone", telLink(l.business_phone))}
+          ${prop("Email", usable(l.owner_email) ? `<a href="mailto:${esc(l.owner_email)}">${esc(l.owner_email)}</a>${usable(l.owner_email_status) ? ` <span class="muted small">${esc(l.owner_email_status)}</span>` : ""}` : "")}
+          ${prop("Address", txt(l.business_address))}
+          ${prop("Website", link(l.website) || txt(l.website) || txt(l.website_status))}
+          ${usable(l.website_notes) ? prop("Website notes", `${txt(l.website_status)} ${esc(l.website_notes)}`) : ""}
+          ${l.google_rating ? prop("Google rating", `${esc(l.google_rating)}★ <span class="muted small">(${esc(l.review_count || 0)} reviews)</span>`) : ""}
+          ${usable(l.facebook) ? prop("Facebook", link(l.facebook)) : ""}
+          ${usable(l.linkedin) ? prop("LinkedIn", link(l.linkedin)) : ""}
+          ${prop("Researched", l.date_researched ? fmtDate(l.date_researched) : "")}
+          ${prop("Created", l.created_at ? fmtTime(l.created_at) : "")}
+        </dl>
+      </section>
+
+      <details class="card pad"><summary><b>Edit all details</b></summary>
+        <form id="edit">${formHtml(l)}<div class="row-btns"><button class="btn">Save changes</button><button type="button" class="btn danger" id="del">Delete lead</button></div></form>
+      </details>
+      </aside>
+
+      <div class="rec-mid">
+      <form class="card pad" id="log">
+        <h3>Log activity</h3>
+        <div class="grid">
+          <label>Type<select name="kind">${KINDS.map((k) => `<option>${k}</option>`).join("")}</select></label>
+          <label>Outcome<select name="outcome">${OUTCOMES.map((o) => `<option value="${o}">${o || "—"}</option>`).join("")}</select></label>
+          <label>New call status<select name="call_status">${[...CALL_STATUSES, NO_ENGLISH].map((s) => `<option ${s === (l.call_status === "New" ? "Called" : l.call_status) ? "selected" : ""}>${s}</option>`).join("")}</select></label>
+          <label>Follow up on<input type="date" name="follow_up_date" value="${esc(l.follow_up_date || "")}"></label>
+          <label class="wide">Notes<textarea name="note" rows="3" placeholder="What happened? What's next?"></textarea></label>
+        </div>
+        <button class="btn">Save</button>
+      </form>
+
+      <section class="card timeline">
+        <div class="tl-tabs" role="tablist">${TL_TABS.map(([k, t]) => `<button type="button" role="tab" data-tl="${k}">${t} <span>${(acts || []).filter((a) => tlKind(a, k)).length}</span></button>`).join("")}</div>
+        <div id="tl"></div>
+      </section>
+      </div>
+
+      <aside class="rec-right">
       <section class="card pad meets">
-        <div class="meets-head"><h3>📅 Meetings</h3>${mErr ? "" : `<button type="button" class="btn" id="meet-btn">Book a meeting</button>`}</div>
+        <div class="meets-head"><h3>📅 Meetings</h3>${mErr ? "" : `<button type="button" class="btn small" id="meet-btn">Book a meeting</button>`}</div>
         ${mErr ? `<p class="muted small">Meetings aren't set up yet: run <code>meetings.sql</code> in Supabase.</p>` : `
         <form id="meet-form" class="meet-form" hidden>
           <div class="grid">
@@ -641,27 +859,6 @@
         <p class="muted small">They pay on Stripe's secure page, by card (+3% fee) or from their bank account (no fee). You never see their card or bank details. Bank payments take a few business days to clear.</p>
       </section>` : ""}
 
-      <form class="card pad" id="log">
-        <h3>Log a call or note</h3>
-        <div class="grid">
-          <label>Type<select name="kind">${KINDS.map((k) => `<option>${k}</option>`).join("")}</select></label>
-          <label>Outcome<select name="outcome">${OUTCOMES.map((o) => `<option value="${o}">${o || "—"}</option>`).join("")}</select></label>
-          <label>New call status<select name="call_status">${[...CALL_STATUSES, NO_ENGLISH].map((s) => `<option ${s === (l.call_status === "New" ? "Called" : l.call_status) ? "selected" : ""}>${s}</option>`).join("")}</select></label>
-          <label>Follow up on<input type="date" name="follow_up_date" value="${esc(l.follow_up_date || "")}"></label>
-          <label class="wide">Notes<textarea name="note" rows="3" placeholder="What happened? What's next?"></textarea></label>
-        </div>
-        <button class="btn">Save</button>
-      </form>
-
-      <section class="card pad">
-        <h3>History</h3>
-        ${(acts || []).map((a) => `<div class="act"><div class="muted small">${fmtTime(a.created_at)} · ${esc(a.kind)}${a.outcome ? " · " + esc(a.outcome) : ""}</div><div>${esc(a.note || "").replace(/\n/g, "<br>")}</div></div>`).join("") || `<p class="muted">No activity yet.</p>`}
-      </section>
-
-      <details class="card pad"><summary><b>Edit all details</b></summary>
-        <form id="edit">${formHtml(l)}<div class="row-btns"><button class="btn">Save changes</button><button type="button" class="btn danger" id="del">Delete lead</button></div></form>
-      </details>
-
       <section class="card pad dex">
         <h3>🎨 Free design by Dex</h3>
         ${dexOpen
@@ -669,7 +866,33 @@
           : `${dexDone ? `<p class="muted small">Dex already built one (requested ${fmtTime(dexDone.created_at)}). See <a href="/designs/">Designs</a>.</p>` : ""}
             <p class="muted small">Adds ${esc(l.business_name)} to Dex's queue with this lead's details. Dex never contacts the business.</p>
             <button type="button" class="btn" id="dex-btn">${dexDone ? "Have Dex build another design" : "Have Dex build a free design"}</button>`}
-      </section>`;
+      </section>
+      </aside>
+      </div>`;
+
+    // ---------- activity timeline (filter tabs, grouped by month, newest first) ----------
+    const drawTimeline = (k) => {
+      app.querySelectorAll("[data-tl]").forEach((b) => b.classList.toggle("on", b.dataset.tl === k));
+      const items = (acts || []).filter((a) => tlKind(a, k));
+      let month = "";
+      document.getElementById("tl").innerHTML = items.map((a) => {
+        const m = new Date(a.created_at).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+        const head = m !== month ? `<div class="tl-month">${(month = m)}</div>` : "";
+        return `${head}<div class="tl-item"><div class="tl-ico">${TL_ICON[a.kind] || "•"}</div><div class="tl-body">
+          <div class="tl-top"><b>${esc(a.kind)}</b>${a.outcome ? ` <span class="pill">${esc(a.outcome)}</span>` : ""}<span class="muted small">${fmtTime(a.created_at)}</span></div>
+          ${a.note ? `<div class="tl-note">${esc(a.note).replace(/\n/g, "<br>")}</div>` : ""}</div></div>`;
+      }).join("") + (k === "all" && l.created_at ? `<div class="tl-item tl-created"><div class="tl-ico">✨</div><div class="tl-body"><div class="tl-top"><b>Lead created</b><span class="muted small">${fmtTime(l.created_at)}</span></div></div></div>` : "")
+        || `<p class="muted pad">No ${TL_TABS.find(([x]) => x === k)[1].toLowerCase()} yet.</p>`;
+    };
+    app.querySelectorAll("[data-tl]").forEach((b) => b.onclick = () => drawTimeline(b.dataset.tl));
+    drawTimeline("all");
+    // Quick actions under the name: jump to the matching box.
+    app.querySelectorAll("[data-quick]").forEach((b) => b.onclick = () => {
+      const q = b.dataset.quick;
+      if (q === "note") { const f = document.getElementById("log"); f.elements.kind.value = "Note"; f.scrollIntoView({ block: "center", behavior: "smooth" }); f.elements.note.focus({ preventScroll: true }); }
+      else if (q === "meet") { const mb = document.getElementById("meet-btn"); if (mb && !mb.hidden) mb.click(); else document.querySelector(".meets").scrollIntoView({ block: "center", behavior: "smooth" }); }
+      else document.querySelector(".dex").scrollIntoView({ block: "center", behavior: "smooth" });
+    });
 
     // ---------- book / finish / cancel a meeting ----------
     const meetBtn = document.getElementById("meet-btn"), meetForm = document.getElementById("meet-form");
@@ -894,6 +1117,8 @@ ${links()}`;
       else if (h === "/inquired") await inquiredView();
       else if (["/ready", "/missing", "/called", "/disqualified"].includes(h)) await tabView(h.slice(1));
       else if (h === "/calendar") await calendarView();
+      else if (h === "/pipeline") await pipelineView();
+      else if (h === "/tasks") await tasksView();
       else if (h === "/script") scriptView();
       else if (h === "/search") await searchView();
       else if (h === "/leads") await leadsView();
