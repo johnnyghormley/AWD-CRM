@@ -135,3 +135,8 @@ header.top .row button { background: transparent; color: var(--on-brand); border
 header.top .row button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 header.top .row a.btn { background: transparent; color: var(--on-brand); border-color: #3B4656; }
 .login { max-width: 380px; margin: 40px auto; }
+
+/* Inside the CRM's Designs tab (?embed=1): the CRM shows the nav, title and sign-out, so this header keeps only its action buttons. */
+.embed header.top { background: transparent; color: var(--fg); border-bottom: 0; }
+.embed header.top .wrap { padding-block: 16px 0; justify-content: flex-end; }
+.embed .mark, .embed #install, .embed #signout, .embed header.top a.btn[href="/"] { display: none !important; }

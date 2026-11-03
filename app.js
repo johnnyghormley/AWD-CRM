@@ -674,6 +674,12 @@
     draw();
   }
 
+  // ---------- Designs: the Dex Design Desk (/designs/, still its own installable app) inside the CRM ----------
+  // Same site and login, so it runs in a frame filling the content area; ?embed=1 hides its own header.
+  function designsView() {
+    app.innerHTML = `<iframe class="embed-frame" src="/designs/?embed=1" title="Dex Design Desk"></iframe>`;
+  }
+
   function input([key, label, type, required], lead) {
     const v = lead[key] ?? "";
     if (Array.isArray(type)) {
@@ -862,8 +868,8 @@
       <section class="card pad dex">
         <h3>🎨 Free design by Dex</h3>
         ${dexOpen
-          ? `<p><b>${dexOpen.status === "in_progress" ? "Dex is building it" : "Queued for Dex"}</b> since ${fmtTime(dexOpen.created_at)}. Tell Claude “Dex, check the queue” to start it. Track it in <a href="/designs/">Designs</a>.</p>`
-          : `${dexDone ? `<p class="muted small">Dex already built one (requested ${fmtTime(dexDone.created_at)}). See <a href="/designs/">Designs</a>.</p>` : ""}
+          ? `<p><b>${dexOpen.status === "in_progress" ? "Dex is building it" : "Queued for Dex"}</b> since ${fmtTime(dexOpen.created_at)}. Tell Claude “Dex, check the queue” to start it. Track it in <a href="#/designs">Designs</a>.</p>`
+          : `${dexDone ? `<p class="muted small">Dex already built one (requested ${fmtTime(dexDone.created_at)}). See <a href="#/designs">Designs</a>.</p>` : ""}
             <p class="muted small">Adds ${esc(l.business_name)} to Dex's queue with this lead's details. Dex never contacts the business.</p>
             <button type="button" class="btn" id="dex-btn">${dexDone ? "Have Dex build another design" : "Have Dex build a free design"}</button>`}
       </section>
@@ -1110,6 +1116,7 @@ ${links()}`;
     nav.hidden = false;
     const h = location.hash.replace(/^#/, "") || "/";
     nav.querySelectorAll("a").forEach((a) => a.classList.toggle("on", a.getAttribute("href") === "#" + h || (h.startsWith("/lead/") && a.getAttribute("href") === "#/leads")));
+    document.body.classList.toggle("full", h === "/designs");
     app.innerHTML = `<p class="muted pad">Loading…</p>`;
     refreshInquiryCount().catch(() => {});
     try {
@@ -1119,6 +1126,7 @@ ${links()}`;
       else if (h === "/calendar") await calendarView();
       else if (h === "/pipeline") await pipelineView();
       else if (h === "/tasks") await tasksView();
+      else if (h === "/designs") designsView();
       else if (h === "/script") scriptView();
       else if (h === "/search") await searchView();
       else if (h === "/leads") await leadsView();
