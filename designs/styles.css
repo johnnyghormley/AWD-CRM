@@ -115,7 +115,9 @@ tfoot td { font-weight: 700; background: var(--sunk); }
 /* requests */
 .reqs { display: grid; gap: 10px; }
 .req { background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--info); border-radius: var(--r); padding: 12px 14px; display: grid; gap: 8px; }
-.req.in_progress { border-left-color: var(--accent); }
+.req.in_progress, .req.build_requested { border-left-color: var(--accent); }
+.req.build_failed { border-left-color: var(--bad); }
+.s-failed { background: var(--warn-soft); color: var(--bad); }
 .req.done { border-left-color: var(--good); opacity: .8; }
 .req h3 { font: 700 15px var(--display); margin: 0; }
 .req p { margin: 0; font-size: 13.5px; overflow-wrap: anywhere; }

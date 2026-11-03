@@ -149,16 +149,23 @@
   }
 
   function renderReqs() {
-    const order = { queued: 0, in_progress: 1, done: 2 };
+    // build_requested: Start build was clicked; the PC watcher (CRM App/sync/dex_watcher.py) starts Dex within ~5 min.
+    const order = { in_progress: 0, build_requested: 1, build_failed: 2, queued: 3, done: 4 };
     const list = reqs.slice().sort((a, b) => (order[a.status] ?? 0) - (order[b.status] ?? 0));
     if (!list.length) { $("reqs").innerHTML = `<div class="empty">The queue is empty. Fill in the form above and Dex will build it next.</div>`; return; }
-    const lbl = { queued: "Queued", in_progress: "Dex is on it", done: "Done" };
+    const lbl = { queued: "Queued", build_requested: "Build requested", in_progress: "Dex is building it", build_failed: "Build didn't finish", done: "Done" };
+    const pill = { done: "s-live", in_progress: "s-approved", build_requested: "s-approved", build_failed: "s-failed" };
     $("reqs").innerHTML = list.map((r) => `<div class="req ${esc(r.status)}">
-      <div class="ctitle"><div><h3>${esc(r.business)}</h3><p class="note">${esc([r.industry, r.contact, r.phone, r.email].filter(Boolean).join(" · "))}</p></div><span class="pill ${r.status === "done" ? "s-live" : r.status === "in_progress" ? "s-approved" : "s-building"}">${lbl[r.status] || "Queued"}</span></div>
+      <div class="ctitle"><div><h3>${esc(r.business)}</h3><p class="note">${esc([r.industry, r.contact, r.phone, r.email].filter(Boolean).join(" · "))}</p></div><span class="pill ${pill[r.status] || "s-building"}">${lbl[r.status] || "Queued"}</span></div>
       ${r.style ? `<p style="white-space:pre-line">${esc(r.style)}</p>` : ""}
       ${r.links ? `<p class="note">Links: ${esc(r.links)}</p>` : ""}
       ${(r.photos || []).length ? `<div class="photos">${r.photos.map((p) => signed[p] ? `<img src="${esc(signed[p])}" alt="Reference photo for ${esc(r.business)}" loading="lazy">` : "").join("")}</div>` : ""}
+      ${r.status === "build_requested" ? `<p class="note">Dex starts within about 5 minutes while your PC is on (it waits if the PC is off).</p>`
+        : r.status === "in_progress" ? `<p class="note">Dex is building the design on your PC. The preview link shows up in Designs when it's done.</p>`
+        : r.status === "build_failed" ? `<p class="note">The last build stopped before finishing. See the log in CRM App\\sync\\logs, then Start build to try again.</p>` : ""}
       <div class="row">
+        ${["queued", "build_failed"].includes(r.status) ? `<button type="button" class="primary" data-rbuild="${esc(r.id)}">Start build</button>` : ""}
+        ${r.status === "build_requested" ? `<button type="button" data-rq="${esc(r.id)}">Cancel build</button>` : ""}
         ${r.status !== "done" ? `<button type="button" data-rdone="${esc(r.id)}">Mark done</button>` : `<button type="button" data-rq="${esc(r.id)}">Put back in queue</button>`}
         <button type="button" class="ghost danger" data-rdel="${esc(r.id)}">Remove</button>
         <span class="hint">${r.created_at ? "Added " + new Date(r.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : ""}</span>
@@ -228,23 +235,27 @@
       if (error) throw error;
       ["rqBusiness", "rqContact", "rqPhone", "rqEmail", "rqIndustry", "rqLinks", "rqStyle"].forEach((id) => ($(id).value = ""));
       $("rqPhotos").value = "";
-      $("rqMsg").textContent = "Queued. Tell Claude “Dex, check the queue” to start it.";
+      $("rqMsg").textContent = "Queued. Click Start build on it below to have Dex build it.";
       toast("Queued for Dex"); load();
     } catch (err) { $("rqMsg").textContent = "Couldn't queue it: " + (err.message || err); }
     finally { $("rqSave").disabled = false; }
   });
 
   $("reqs").addEventListener("click", async (e) => {
-    const done = e.target.closest("[data-rdone]"), back = e.target.closest("[data-rq]"), del = e.target.closest("[data-rdel]");
+    const done = e.target.closest("[data-rdone]"), back = e.target.closest("[data-rq]"), del = e.target.closest("[data-rdel]"), build = e.target.closest("[data-rbuild]");
     let res;
-    if (done) res = await sb.from("design_requests").update({ status: "done" }).eq("id", done.dataset.rdone);
+    if (build) {
+      const r = reqs.find((x) => x.id === build.dataset.rbuild);
+      if (!confirm(`Start Dex's build of the free design for ${r ? r.business : "this company"}? Your PC builds it and publishes the private preview link.`)) return;
+      res = await sb.from("design_requests").update({ status: "build_requested" }).eq("id", build.dataset.rbuild);
+    } else if (done) res = await sb.from("design_requests").update({ status: "done" }).eq("id", done.dataset.rdone);
     else if (back) res = await sb.from("design_requests").update({ status: "queued" }).eq("id", back.dataset.rq);
     else if (del) {
       if (del.dataset.armed !== "1") { del.dataset.armed = "1"; del.textContent = "Tap again to remove"; setTimeout(() => { if (del.isConnected) { del.dataset.armed = ""; del.textContent = "Remove"; } }, 3000); return; }
       res = await sb.from("design_requests").delete().eq("id", del.dataset.rdel);
     } else return;
     if (res.error) return toast("Couldn't update: " + res.error.message);
-    toast(done ? "Marked done" : back ? "Back in the queue" : "Request removed"); load();
+    toast(build ? "Build requested. Dex starts within about 5 minutes." : done ? "Marked done" : back ? "Back in the queue" : "Request removed"); load();
   });
 
   // ---------- start ----------

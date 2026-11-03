@@ -13,7 +13,7 @@
 <meta name="apple-mobile-web-app-title" content="Dex Desk">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=2">
+<link rel="stylesheet" href="styles.css?v=3">
 <script>/* Opened inside the CRM's Designs tab: light theme, CRM sidebar handles nav and sign-out */ if (new URLSearchParams(location.search).has("embed")) { document.documentElement.classList.add("embed"); document.documentElement.dataset.theme = "light"; }</script>
 </head>
 <body>
@@ -81,7 +81,7 @@
         <label class="wide">Style and notes<textarea id="rqStyle" placeholder="Colors, fonts, vibe, what to include…"></textarea></label>
         <label class="wide" id="rqPhotosWrap">Photos <span class="hint">Logos, labels, storefront or style photos (up to 6).</span><input id="rqPhotos" type="file" accept="image/png,image/jpeg,image/webp" multiple></label>
       </div>
-      <div class="row"><button class="primary" id="rqSave" type="button">Queue for Dex</button><span class="hint" id="rqMsg">Dex picks these up the next time you tell Claude "Dex, check the queue."</span></div>
+      <div class="row"><button class="primary" id="rqSave" type="button">Queue for Dex</button><span class="hint" id="rqMsg">Then click Start build on it below, and your PC starts Dex within about 5 minutes.</span></div>
     </div>
     <div class="reqs" id="reqs"></div>
   </section>
@@ -90,6 +90,6 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="../config.js?v=2"></script>
-<script src="designs.js?v=2"></script>
+<script src="designs.js?v=3"></script>
 </body>
 </html>

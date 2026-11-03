@@ -868,7 +868,7 @@
       <section class="card pad dex">
         <h3>🎨 Free design by Dex</h3>
         ${dexOpen
-          ? `<p><b>${dexOpen.status === "in_progress" ? "Dex is building it" : "Queued for Dex"}</b> since ${fmtTime(dexOpen.created_at)}. Tell Claude “Dex, check the queue” to start it. Track it in <a href="#/designs">Designs</a>.</p>`
+          ? `<p><b>${dexOpen.status === "in_progress" ? "Dex is building it" : dexOpen.status === "build_requested" ? "Build requested" : dexOpen.status === "build_failed" ? "Build didn't finish" : "Queued for Dex"}</b> since ${fmtTime(dexOpen.created_at)}. Tell Claude “Dex, check the queue” to start it. Track it in <a href="#/designs">Designs</a>.</p>`
           : `${dexDone ? `<p class="muted small">Dex already built one (requested ${fmtTime(dexDone.created_at)}). See <a href="#/designs">Designs</a>.</p>` : ""}
             <p class="muted small">Adds ${esc(l.business_name)} to Dex's queue with this lead's details. Dex never contacts the business.</p>
             <button type="button" class="btn" id="dex-btn">${dexDone ? "Have Dex build another design" : "Have Dex build a free design"}</button>`}
