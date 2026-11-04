@@ -804,6 +804,7 @@
           ${phones.length ? `<a href="tel:${esc(tel(phones[0][0]))}"><i>📞</i>Call</a>` : ""}
           ${mErr ? "" : `<button type="button" data-quick="meet"><i>📅</i>Meeting</button>`}
           <button type="button" data-quick="dex"><i>🎨</i>Design</button>
+          <button type="button" data-quick="edit"><i>✏️</i>Edit</button>
         </div>
         <div class="actions">
           ${phones.map(([p, t]) => `<a class="btn" href="tel:${esc(tel(p))}">📞 ${esc(t)} · ${esc(p)}</a>`).join("")}
@@ -849,7 +850,7 @@
         </dl>
       </section>
 
-      <details class="card pad"><summary><b>Edit all details</b></summary>
+      <details class="card pad" id="edit-box"><summary><b>✏️ Edit contact info</b> <span class="muted small">(name, owner, phone, email, address…)</span></summary>
         <form id="edit">${formHtml(l)}<div class="row-btns"><button class="btn">Save changes</button><button type="button" class="btn danger" id="del">Delete lead</button></div></form>
       </details>
       </aside>
@@ -943,6 +944,7 @@
       const q = b.dataset.quick;
       if (q === "note") { const f = document.getElementById("log"); f.elements.kind.value = "Note"; f.scrollIntoView({ block: "center", behavior: "smooth" }); f.elements.note.focus({ preventScroll: true }); }
       else if (q === "meet") { const mb = document.getElementById("meet-btn"); if (mb && !mb.hidden) mb.click(); else document.querySelector(".meets").scrollIntoView({ block: "center", behavior: "smooth" }); }
+      else if (q === "edit") { const box = document.getElementById("edit-box"); box.open = true; box.scrollIntoView({ block: "start", behavior: "smooth" }); const f = document.getElementById("edit").elements.business_name; if (f) f.focus({ preventScroll: true }); }
       else document.querySelector(".dex").scrollIntoView({ block: "center", behavior: "smooth" });
     });
 
