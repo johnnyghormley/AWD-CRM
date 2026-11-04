@@ -168,10 +168,19 @@
   // Calls logged per lead (activities of kind Call). Loaded with the meetings on every page change.
   let callCounts = new Map();
   async function loadCallCounts() {
-    const { data, error } = await sb.from("activities").select("lead_id").eq("kind", "Call").limit(20000);
+    const [{ data, error }, { data: moves, error: mErr }] = await Promise.all([
+      sb.from("activities").select("lead_id").eq("kind", "Call").limit(20000),
+      sb.from("activities").select("lead_id, outcome").in("outcome", [TO_EMAIL, TO_CALLS]).order("created_at", { ascending: true }).limit(20000)
+    ]);
     callCounts = new Map();
     if (!error) (data || []).forEach((a) => callCounts.set(String(a.lead_id), (callCounts.get(String(a.lead_id)) || 0) + 1));
+    emailMoved = new Set();
+    if (!mErr) (moves || []).forEach((a) => a.outcome === TO_EMAIL ? emailMoved.add(String(a.lead_id)) : emailMoved.delete(String(a.lead_id)));
   }
+  // Moved to email list by hand (2026-11-04): couldn't get through by phone. The latest of these two activity outcomes wins.
+  const TO_EMAIL = "Moved to email list", TO_CALLS = "Back to call list";
+  let emailMoved = new Set();
+  const movedToEmail = (l) => emailMoved.has(String(l.id)) && !CLOSED.includes(l.call_status);
   const callsOf = (l) => callCounts.get(String(l.id)) || 0;
   // Called out (2026-11-03): called 3 or more times and still open. With an email they leave Ready for Only email
   // (and the weekly Gmail email); without one, logging the 3rd call sets the next call 30 days out.
@@ -179,12 +188,12 @@
   const calledOut = (l) => callsOf(l) >= CALLS_MAX && !CLOSED.includes(l.call_status);
   // Only email (2026-11-03): no owner or business phone, but an email, or called out with an email. They go here instead of Ready / Missing info.
   const hasPhone = (l) => usable(l.owner_phone) || usable(l.business_phone);
-  const isOnlyEmail = (l) => usable(l.owner_email) && ((!hasPhone(l) && l.call_status === "New") || (calledOut(l) && !hasMeeting(l)));
+  const isOnlyEmail = (l) => (movedToEmail(l) && !hasMeeting(l)) || (usable(l.owner_email) && ((!hasPhone(l) && l.call_status === "New") || (calledOut(l) && !hasMeeting(l))));
   const isFresh = (l) => l.lead_status !== "Missing Info" && l.call_status === "New" && !isOnlyEmail(l);
   const TABS = [
     ["ready", "Ready", (l) => (isFresh(l) || isDue(l)) && !hasMeeting(l) && !isOnlyEmail(l), "Follow-ups due today (and overdue ones), then qualified leads not called yet. Leads with a meeting booked, or called 3 times and reachable by email, aren't listed here."],
     ["missing", "Missing info", (l) => l.lead_status === "Missing Info" && l.call_status === "New" && !isOnlyEmail(l), "Not called yet, still missing some info (for example, only the company's phone, no owner phone)."],
-    ["onlyemail", "Only email", isOnlyEmail, "Leads with an email but no phone number, plus leads called 3 times that have an email. They get the weekly Gmail email (Campaigns-Me) instead of calls."],
+    ["onlyemail", "Only email", isOnlyEmail, "Leads with an email but no phone number, plus leads called 3 times that have an email, plus leads you moved here with Move to email list. They get the weekly Gmail email (Campaigns-Me) instead of calls. Ones with no email yet wait here while Claude looks for one."],
     ["called", "Called", (l) => l.call_status !== "New" && !isDq(l), "Everyone you've called. Check Follow up to move a lead into the Follow up list."],
     ["disqualified", "Disqualified", isDq, "Leads that aren't a fit. They're kept out of every other list. Tap Restore to put one back in Ready."]
   ];
@@ -774,6 +783,8 @@
         ${live ? `<p class="small">Live: <a href="${esc(live)}" target="_blank" rel="noopener">${esc(live.replace(/^https?:\/\/(www\.)?/, ""))}</a></p>` : ""}
       </div>`;
     }).join("");
+    const lastMove = (acts || []).find((a) => a.outcome === TO_EMAIL || a.outcome === TO_CALLS);
+    const onEmailList = !!lastMove && lastMove.outcome === TO_EMAIL;
     const phones = [[l.owner_phone, `Call ${usable(l.owner_name) ? l.owner_name.split(" (")[0] : "owner"}`], [l.business_phone, "Call business"]].filter(([p]) => usable(p));
     const initials = l.business_name.split(/\s+/).filter((w) => /^[a-z0-9]/i.test(w)).slice(0, 2).map((w) => w[0].toUpperCase()).join("");
     const prop = (label, v) => `<div class="prop"><dt>${label}</dt><dd>${v || '<span class="muted">—</span>'}</dd></div>`;
@@ -797,6 +808,7 @@
           <span class="pill ${statusClass(l.call_status)}">${esc(l.call_status)}</span>
           ${l.list ? `<span class="pill list">List ${esc(l.list)} · Package ${esc(l.list)}</span>` : ""}
           ${l.lead_status === "Missing Info" ? `<span class="pill warn">Missing: ${esc(l.missing || "info")}</span>` : ""}
+          ${onEmailList && !CLOSED.includes(l.call_status) ? `<span class="pill list">📧 Email list${usable(l.owner_email) && l.owner_email_status !== "Inferred" ? "" : " · needs an email"}</span>` : ""}
         </div>
         <div class="quick">
           <button type="button" data-quick="note"><i>📝</i>Note</button>
@@ -815,6 +827,14 @@
             <button class="btn">Save</button>
             <button type="button" class="btn ghost" id="add-email-cancel">Cancel</button>
           </form>` : ""}
+          ${CLOSED.includes(l.call_status) ? "" : onEmailList
+            ? `<button type="button" class="btn ghost" id="to-calls-btn">📞 Back to call list</button>`
+            : `<button type="button" class="btn ghost" id="to-email-btn">📧 Move to email list</button>
+          <form id="to-email" class="add-email" hidden>
+            <input id="to-email-input" type="email" placeholder="${usable(l.owner_email) ? esc(l.owner_email) : "Their email, if you have it"}" autocomplete="off" aria-label="Email address">
+            <button class="btn">Move</button>
+            <button type="button" class="btn ghost" id="to-email-cancel">Cancel</button>
+          </form>`}
           ${usable(l.website) ? `<a class="btn ghost" target="_blank" rel="noopener" href="${esc(/^https?:/i.test(l.website) ? l.website : "https://" + l.website)}">🌐 Website</a>` : ""}
           ${l.call_status === "Disqualified"
             ? `<button type="button" class="btn ghost" id="requal-btn">↩ Restore lead</button>`
@@ -1061,6 +1081,38 @@
     if (rq) rq.onclick = async () => { rq.disabled = true; if (await requalify(l)) leadView(id); else rq.disabled = false; };
 
     // ---------- add / correct the owner's email ----------
+    // ---------- move to the email list (can't get through by phone) / back to calling ----------
+    const toEmailBtn = document.getElementById("to-email-btn"), toEmailForm = document.getElementById("to-email");
+    if (toEmailBtn && toEmailForm) {
+      toEmailBtn.onclick = () => { toEmailBtn.hidden = true; toEmailForm.hidden = false; document.getElementById("to-email-input").focus(); };
+      document.getElementById("to-email-cancel").onclick = () => { toEmailForm.hidden = true; toEmailBtn.hidden = false; };
+      toEmailForm.onsubmit = async (e) => {
+        e.preventDefault();
+        const typed = document.getElementById("to-email-input").value.trim().toLowerCase();
+        if (typed && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(typed)) return toast("That doesn't look like an email address", true);
+        const hasEmail = usable(l.owner_email) && l.owner_email_status !== "Inferred";
+        if (typed && typed !== String(l.owner_email || "").toLowerCase()) {
+          const { error: e1 } = await sb.from("leads").update({ owner_email: typed, owner_email_status: "Verified" }).eq("id", id);
+          if (e1) return fail(e1);
+        }
+        const lines = ["Couldn't get through by phone: moved to the email list (off the Ready tab)."];
+        if (typed) lines.push(`Email: ${typed}`);
+        else if (!hasEmail) lines.push("No email yet: Claude looks for one on the next daily email run.");
+        if (usable(l.website)) lines.push("Has a website, so the weekly no-website email skips it.");
+        const { error: e2 } = await sb.from("activities").insert({ lead_id: id, kind: "Note", outcome: TO_EMAIL, note: lines.join("\n") });
+        if (e2) return fail(e2);
+        await sb.from("leads").update({ next_step: typed || hasEmail ? "On the weekly email list" : "Email list: find an email" }).eq("id", id);
+        toast(`${l.business_name} moved to the email list`); leadView(id);
+      };
+    }
+    const toCallsBtn = document.getElementById("to-calls-btn");
+    if (toCallsBtn) toCallsBtn.onclick = async () => {
+      const { error: e3 } = await sb.from("activities").insert({ lead_id: id, kind: "Note", outcome: TO_CALLS, note: "Moved back to the call list." });
+      if (e3) return fail(e3);
+      await sb.from("leads").update({ next_step: "Call" }).eq("id", id);
+      toast(`${l.business_name} is back on the call list`); leadView(id);
+    };
+
     const addBtn = document.getElementById("add-email-btn"), addForm = document.getElementById("add-email");
     if (addBtn && addForm) {
       const openAdd = () => { addBtn.hidden = true; addForm.hidden = false; const i = document.getElementById("add-email-input"); i.focus(); addForm.scrollIntoView({ block: "center", behavior: "smooth" }); };
