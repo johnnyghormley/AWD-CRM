@@ -12,8 +12,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Dex Desk">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=3">
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css?v=5">
 <script>/* Opened inside the CRM's Designs tab: light theme, CRM sidebar handles nav and sign-out */ if (new URLSearchParams(location.search).has("embed")) { document.documentElement.classList.add("embed"); document.documentElement.dataset.theme = "light"; }</script>
 </head>
 <body>
@@ -25,6 +25,8 @@
 <div class="wrap"><form class="panel login" id="login" hidden><h2>Sign in</h2><label>Email<input id="lgEmail" name="email" type="email" required autocomplete="username"></label><label>Password<input id="lgPass" name="password" type="password" required autocomplete="current-password"></label><button class="primary" type="submit">Sign in</button><span class="hint">Same login as the AWD CRM.</span></form>
 <main id="main" hidden>
   <div class="banner" id="dbBanner" hidden>The design tables aren't set up in the database yet. Run designs.sql in Supabase (SQL Editor), then reload.</div>
+
+  <div id="dexPanel"></div>
 
   <section class="block" aria-labelledby="sumH">
     <h2 id="sumH" class="eyebrow">Right now</h2>
@@ -90,6 +92,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="../config.js?v=2"></script>
-<script src="designs.js?v=4"></script>
+<script src="dex.js?v=2"></script>
+<script src="designs.js?v=5"></script>
 </body>
 </html>

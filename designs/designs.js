@@ -173,7 +173,14 @@
       </div></div>`).join("");
   }
 
-  function renderAll() { renderFlow(); renderStats(); renderDesigns(); renderMoney(); renderReqs(); }
+  let dexKey = "";
+  function renderDex() {
+    if (!window.DexRunner) return;
+    const key = JSON.stringify([designs.map((d) => [d.id, d.status]), reqs.map((r) => [r.id, r.status])]);
+    if (key === dexKey) return; // unchanged: keep the animation running
+    dexKey = key; $("dexPanel").innerHTML = DexRunner.html(designs, reqs); DexRunner.start(designs, reqs);
+  }
+  function renderAll() { renderDex(); renderFlow(); renderStats(); renderDesigns(); renderMoney(); renderReqs(); }
 
   // ---------- events ----------
   $("flow").addEventListener("click", (e) => { const b = e.target.closest("[data-f]"); if (!b) return; filter = b.dataset.f; renderFlow(); renderDesigns(); });
