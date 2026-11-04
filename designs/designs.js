@@ -125,6 +125,7 @@
           <div class="row">
             <select aria-label="Change status for ${esc(d.business)}" data-status="${esc(d.id)}">${STATUSES.map(([k, l]) => `<option value="${k}" ${k === d.status ? "selected" : ""}>${l}</option>`).join("")}</select>
             <button type="button" data-edit="${esc(d.id)}">Edit</button>
+            <button type="button" class="ghost danger" data-ddel="${esc(d.id)}">Remove</button>
           </div>
         </div></article>`;
     }).join("");
@@ -190,7 +191,16 @@
   }
   $("btnNewDesign").addEventListener("click", () => openDesignForm(null));
   $("dfCancel").addEventListener("click", () => { $("designForm").hidden = true; editingId = null; });
-  $("designs").addEventListener("click", (e) => {
+  $("designs").addEventListener("click", async (e) => {
+    const del = e.target.closest("[data-ddel]");
+    if (del) {
+      const d = designs.find((x) => x.id === del.dataset.ddel); if (!d) return;
+      if (!confirm(`Remove ${d.business} from Designs? This can't be undone.`)) return;
+      const { error } = await sb.from("designs").delete().eq("id", d.id);
+      if (error) return toast("Couldn't remove: " + error.message);
+      if (d.thumb) await sb.storage.from("designs").remove([d.thumb]);
+      toast(d.business + " removed"); return load();
+    }
     const b = e.target.closest("[data-edit]"); if (!b) return;
     const d = designs.find((x) => x.id === b.dataset.edit); if (d) openDesignForm(d);
   });
