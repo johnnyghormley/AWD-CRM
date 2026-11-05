@@ -459,3 +459,64 @@ body.full main { max-width: none; height: 100%; min-height: 0; padding: 0; displ
 .deal-grid label { display: flex; flex-direction: column; gap: 4px; font-size: .85rem; }
 .deal-grid .span2 { grid-column: 1 / -1; }
 .bcard [data-deal-edit] { align-self: flex-start; }
+
+/* ---------- Dark mode (2026-11-05). On by default; the sidebar button switches it (saved per browser). ---------- */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --c: #E5E9F0; --bg: #0E131A; --line: #2A3441; --muted: #94A3B8; --y-soft: rgba(250,204,21,.14);
+  --s1: #161C25; --s2: #1C2430; --s3: #243041; --link: #6CB4FF;
+}
+:root[data-theme="dark"] code { background: var(--s3); }
+:root[data-theme="dark"] .side, :root[data-theme="dark"] .card, :root[data-theme="dark"] .stat, :root[data-theme="dark"] .row,
+:root[data-theme="dark"] .tlist, :root[data-theme="dark"] .script-tabs, :root[data-theme="dark"] .pe-box, :root[data-theme="dark"] .reload,
+:root[data-theme="dark"] .tl-item, :root[data-theme="dark"] .bcard, :root[data-theme="dark"] .cm-preview, :root[data-theme="dark"] input,
+:root[data-theme="dark"] select, :root[data-theme="dark"] textarea, :root[data-theme="dark"] .btn.ghost, :root[data-theme="dark"] .quick i { background: var(--s1); }
+:root[data-theme="dark"] input, :root[data-theme="dark"] select, :root[data-theme="dark"] textarea, :root[data-theme="dark"] .btn.ghost,
+:root[data-theme="dark"] .quick i { border-color: #3A4656; color: var(--c); }
+:root[data-theme="dark"] input::placeholder, :root[data-theme="dark"] textarea::placeholder { color: #6B7A8F; }
+:root[data-theme="dark"] nav a, :root[data-theme="dark"] .trow-contact, :root[data-theme="dark"] label { color: #C9D2DE; }
+:root[data-theme="dark"] .linkbtn { color: var(--muted); }
+:root[data-theme="dark"] nav a:hover, :root[data-theme="dark"] .linkbtn:hover, :root[data-theme="dark"] .btn.ghost:hover,
+:root[data-theme="dark"] .trow:hover, :root[data-theme="dark"] .agenda-row:hover, :root[data-theme="dark"] .tbl tbody tr:hover { background: var(--s2); }
+:root[data-theme="dark"] nav a.on { color: #FDE68A; }
+:root[data-theme="dark"] nav a.on .nav-count { background: var(--y); color: #1F2937; }
+:root[data-theme="dark"] .nav-count, :root[data-theme="dark"] .tabs button span, :root[data-theme="dark"] .tl-tabs button span { background: var(--s3); color: #C9D2DE; }
+:root[data-theme="dark"] .nav-h { color: #6B7A8F; }
+:root[data-theme="dark"] .btn.danger, :root[data-theme="dark"] .st-donotcall, :root[data-theme="dark"] .st-disqualified,
+:root[data-theme="dark"] .cal-ev.fu.late, :root[data-theme="dark"] .cm-rs-failed { background: rgba(248,113,113,.16); color: #FCA5A5; }
+:root[data-theme="dark"] .toast { background: #F1F5F9; color: #0F172A; }
+:root[data-theme="dark"] .toast.bad { background: #B91C1C; color: #fff; }
+:root[data-theme="dark"] .pill, :root[data-theme="dark"] .st-called { background: var(--s3); color: #D5DCE6; }
+:root[data-theme="dark"] .pill.list { background: rgba(129,140,248,.18); color: #C7D2FE; }
+:root[data-theme="dark"] .pill.warn, :root[data-theme="dark"] .trow-missing, :root[data-theme="dark"] .cm-check li.todo > span,
+:root[data-theme="dark"] .cm-warn { background: rgba(251,191,36,.16); color: #FCD34D; }
+:root[data-theme="dark"] .st-new, :root[data-theme="dark"] .cal-ev.meet, :root[data-theme="dark"] .agenda-tag.meet,
+:root[data-theme="dark"] .cm-st-draft, :root[data-theme="dark"] .cm-rs-scheduled { background: rgba(96,165,250,.18); color: #BFDBFE; }
+:root[data-theme="dark"] .st-callback, :root[data-theme="dark"] .st-followup, :root[data-theme="dark"] .cal-ev.fu,
+:root[data-theme="dark"] .agenda-tag.fu, :root[data-theme="dark"] .cm-st-sending { background: rgba(250,204,21,.16); color: #FDE68A; }
+:root[data-theme="dark"] .st-designsent { background: rgba(167,139,250,.18); color: #DDD6FE; }
+:root[data-theme="dark"] .st-won, :root[data-theme="dark"] .cm-check li.ok > span, :root[data-theme="dark"] .cm-st-done,
+:root[data-theme="dark"] .cm-rs-sent { background: rgba(74,222,128,.16); color: #86EFAC; }
+:root[data-theme="dark"] .st-notinterested { background: var(--s2); color: #94A3B8; }
+:root[data-theme="dark"] .due.late, :root[data-theme="dark"] .meet.late b, :root[data-theme="dark"] .tbl td.late,
+:root[data-theme="dark"] .dq-why, :root[data-theme="dark"] .tbl td.late .due-in { color: #FCA5A5; }
+:root[data-theme="dark"] .no-contact { color: #FBBF24; }
+:root[data-theme="dark"] .rapport, :root[data-theme="dark"] .script .say, :root[data-theme="dark"] .cal-day.today { background: rgba(250,204,21,.10); }
+:root[data-theme="dark"] .meet-form, :root[data-theme="dark"] .cal-dow, :root[data-theme="dark"] .tbl th, :root[data-theme="dark"] .cm-prev-meta,
+:root[data-theme="dark"] .tl-ico, :root[data-theme="dark"] .tl-created { background: var(--s2); }
+:root[data-theme="dark"] .cal-day.blank, :root[data-theme="dark"] .cal-day.past { background: #121821; }
+:root[data-theme="dark"] .cal-day.past .cal-num { color: #6B7A8F; }
+:root[data-theme="dark"] .bcol { background: #121821; }
+:root[data-theme="dark"] .bcol-head { border-bottom-color: var(--line); }
+:root[data-theme="dark"] .bcard:hover { border-color: #4A5A70; box-shadow: 0 1px 6px rgba(0,0,0,.4); }
+:root[data-theme="dark"] .bcard-name, :root[data-theme="dark"] .crumbs a, :root[data-theme="dark"] .prop dd a, :root[data-theme="dark"] .tbl a { color: var(--link); }
+:root[data-theme="dark"] .prop, :root[data-theme="dark"] .tbl td, :root[data-theme="dark"] .cm-unsubs > div { border-color: var(--line); }
+:root[data-theme="dark"] .dex-built, :root[data-theme="dark"] .dex-built img, :root[data-theme="dark"] .cm-step { border-color: var(--line); }
+:root[data-theme="dark"] .pe-overlay { background: rgba(0,0,0,.65); }
+:root[data-theme="dark"] .trow-phone { color: #1F2937; }
+/* Yellow things keep dark text in dark mode */
+:root[data-theme="dark"] .btn:not(.ghost):not(.danger), :root[data-theme="dark"] .trow-phone, :root[data-theme="dark"] .linkbtn.install:hover,
+:root[data-theme="dark"] .nav-count.hot, :root[data-theme="dark"] .script-tabs button.on, :root[data-theme="dark"] .reload:hover,
+:root[data-theme="dark"] .reload:active, :root[data-theme="dark"] .cal-day.today .cal-num, :root[data-theme="dark"] .avatar { color: #1F2937; }
+:root[data-theme="dark"] input:focus, :root[data-theme="dark"] select:focus, :root[data-theme="dark"] textarea:focus { border-color: var(--y); }
+.theme-btn i { font-style: normal; width: 18px; text-align: center; }

@@ -1437,6 +1437,21 @@ ${links()}`;
   window.addEventListener("hashchange", route);
   route();
 
+  // ---------- light / dark mode (2026-11-05): dark by default, saved per browser ----------
+  const themeBtn = document.getElementById("theme");
+  const drawTheme = () => {
+    const dark = document.documentElement.dataset.theme === "dark";
+    themeBtn.innerHTML = dark ? "<i>☀️</i>Light mode" : "<i>🌙</i>Dark mode";
+    document.querySelector('meta[name="theme-color"]').content = dark ? "#161C25" : "#FFFFFF";
+  };
+  themeBtn.onclick = () => {
+    const t = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+    document.documentElement.dataset.theme = t;
+    try { localStorage.setItem("awd-theme", t); } catch (e) {}
+    drawTheme();
+  };
+  drawTheme();
+
   // ---------- installable app (Chrome/Edge "Install app") ----------
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch((e) => console.warn("SW", e));
   let installPrompt = null;

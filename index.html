@@ -9,10 +9,13 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <meta name="theme-color" content="#FFFFFF">
+<script>/* Dark mode is the default (2026-11-05); the sidebar button switches it, saved in this browser. */
+(function () { var t = "dark"; try { t = localStorage.getItem("awd-theme") || "dark"; } catch (e) {}
+  document.documentElement.dataset.theme = t; document.querySelector('meta[name="theme-color"]').content = t === "dark" ? "#161C25" : "#FFFFFF"; })();</script>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="AWD CRM">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Montserrat:wght@700;800&family=Orbitron:wght@600;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=26">
+<link rel="stylesheet" href="styles.css?v=27">
 </head>
 <body>
 <div class="shell">
@@ -48,6 +51,7 @@
     <a href="#/new"><i>＋</i>Add lead</a>
     <a href="#/import"><i>⬆</i>Import</a>
     <div class="nav-foot">
+      <button id="theme" class="linkbtn theme-btn" type="button"></button>
       <button id="install" class="linkbtn install" hidden>⬇ Install app</button>
       <button id="signout" class="linkbtn">Sign out</button>
     </div>
@@ -66,6 +70,6 @@
 <script src="payemail.js?v=2"></script>
 <script src="campaign-render.js?v=2"></script>
 <script src="campaigns.js?v=4"></script>
-<script src="app.js?v=39"></script>
+<script src="app.js?v=40"></script>
 </body>
 </html>
