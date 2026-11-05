@@ -636,11 +636,64 @@
 
   // ---------- Deals (2026-11-05): current ongoing deals, one card per deal, by stage ----------
   // A deal is started from a lead page (🤝 Deal) or here. Moving it logs the change in the lead's history.
-  const DEAL_STAGES = ["Meeting set", "Design shown", "Payment link sent", "Won", "Lost"];
-  const DEAL_OPEN = DEAL_STAGES.slice(0, 3);
+  const DEAL_STAGES = ["Meeting set", "Design in progress", "Design shown", "Payment link sent", "Won", "Lost"];
+  const DEAL_OPEN = DEAL_STAGES.slice(0, 4);
+  const DEAL_LOST_STATUSES = ["Not Interested", "Do Not Call", "Disqualified"];
+
+  // Automatic deals (Johnathon 2026-11-05: "anytime a meeting has been set up or anything regarding the next step ... put them in the deals tab").
+  // Runs each time the Deals tab opens. A contact gets a deal as soon as it has a meeting, a Dex design (asked for or built),
+  // a design sent, or a payment link sent; the deal only ever moves forward. Won / lost call statuses close an open deal.
+  // Manual changes stay: auto never moves a deal back, and never reopens a Won or Lost one.
+  async function syncDeals() {
+    const [{ data: deals, error }, { data: leads }, { data: meets }, { data: reqs }, { data: designs }, { data: acts }] = await Promise.all([
+      sb.from("deals").select("id,lead_id,stage,upfront,monthly"),
+      sb.from("leads").select("id,business_name,call_status"),
+      sb.from("meetings").select("lead_id,status").in("status", ["scheduled", "done"]),
+      sb.from("design_requests").select("business,status"),
+      sb.from("designs").select("business,status,pkg,upfront,monthly"),
+      sb.from("activities").select("lead_id,kind,note").or('kind.eq."Design sent",note.like."Payment link*",note.like."Asked Dex*",note.like."Deal removed*"')
+    ]);
+    if (error) return;
+    const key = (s) => String(s || "").trim().toLowerCase();
+    const want = new Map(); // lead id -> furthest stage reached
+    const bump = (id, stage) => { if (DEAL_STAGES.indexOf(stage) > DEAL_STAGES.indexOf(want.get(id) || "")) want.set(id, stage); };
+    const byName = new Map((leads || []).map((l) => [key(l.business_name), l]));
+    const design = new Map();
+    (meets || []).forEach((m) => bump(m.lead_id, "Meeting set"));
+    (reqs || []).forEach((r) => { const l = byName.get(key(r.business)); if (l) bump(l.id, "Design in progress"); });
+    (designs || []).forEach((d) => {
+      const l = byName.get(key(d.business)); if (!l) return;
+      design.set(l.id, d);
+      bump(l.id, ["sent", "approved"].includes(d.status) ? "Design shown" : ["paid", "live"].includes(d.status) ? "Won" : "Design in progress");
+    });
+    const removed = new Set((acts || []).filter((a) => /^Deal removed/.test(a.note || "")).map((a) => a.lead_id)); // deleted by hand: don't bring it back
+    (acts || []).filter((a) => !/^Deal removed/.test(a.note || "")).forEach((a) => bump(a.lead_id, /^Payment link/.test(a.note || "") ? "Payment link sent" : "Design in progress"));
+    (leads || []).forEach((l) => { if (l.call_status === "Design Sent") bump(l.id, "Design shown"); if (l.call_status === "Won") bump(l.id, "Won"); });
+    const open = new Map(), closed = new Set();
+    (deals || []).forEach((d) => (DEAL_OPEN.includes(d.stage) ? open.set(d.lead_id, d) : closed.add(d.lead_id)));
+    const now = new Date().toISOString(), logs = [];
+    for (const l of leads || []) {
+      const d = open.get(l.id), to = DEAL_LOST_STATUSES.includes(l.call_status) ? "Lost" : want.get(l.id);
+      if (!to) continue;
+      if (d) {
+        if (to !== "Lost" && DEAL_STAGES.indexOf(to) <= DEAL_STAGES.indexOf(d.stage)) continue;
+        const { error: e } = await sb.from("deals").update({ stage: to, updated_at: now, closed_at: DEAL_OPEN.includes(to) ? null : now }).eq("id", d.id);
+        if (!e) logs.push({ lead_id: l.id, kind: "Note", note: `Deal (automatic): ${d.stage} → ${to} (${dealValue(d)})` });
+      } else if (DEAL_OPEN.includes(to) && !closed.has(l.id) && !removed.has(l.id)) {
+        // New deals only for contacts still in play; a Won or Lost contact without a deal isn't an ongoing deal.
+        const ds = design.get(l.id) || {};
+        const pkgName = ((typeof window !== "undefined" && window.AWD_PAYMENT_LINKS) || []).find((p) => p.key === ds.pkg);
+        const row = { lead_id: l.id, stage: to, package: (pkgName && pkgName.label) || ds.pkg || "New Website", upfront: ds.upfront ?? 199, monthly: ds.monthly ?? 29, updated_at: now };
+        const { error: e } = await sb.from("deals").insert(row);
+        if (!e) logs.push({ lead_id: l.id, kind: "Note", note: `Deal started (automatic): ${to} (${dealValue(row)})` });
+      }
+    }
+    if (logs.length) await sb.from("activities").insert(logs);
+  }
   const money = (n) => "$" + Number(n || 0).toLocaleString("en-US", { maximumFractionDigits: 2 });
   const dealValue = (d) => `${money(d.upfront)}${Number(d.monthly) ? ` + ${money(d.monthly)}/mo` : ""}`;
   async function dealsView(newFor) {
+    await syncDeals().catch((e) => console.warn("deal sync", e));
     const [{ data: deals, error }, { data: leads, error: lErr }] = await Promise.all([
       sb.from("deals").select("*, leads(business_name, owner_name, owner_phone, business_phone, city)").order("updated_at", { ascending: false }),
       sb.from("leads").select("id,business_name,city,call_status").neq("call_status", "Disqualified").order("business_name")
@@ -691,7 +744,7 @@
     };
     app.innerHTML = `
       <div class="page-head"><h2 class="h">Deals</h2><div class="page-tools"><button type="button" class="btn" id="deal-new">＋ New deal</button></div></div>
-      <p class="muted small tab-hint">Current ongoing deals. Start one from a contact's page (🤝 Deal) or with ＋ New deal. Drag a card or use its menu to change the stage; every change is logged on the contact's history. Won and Lost deals stay here for 30 days.</p>
+      <p class="muted small tab-hint">Current ongoing deals. Contacts show up here on their own when a meeting is booked, a Dex design is asked for or built, a design is sent, or a payment link is sent, and move forward as they go (a Won or Not Interested status closes the deal). You can also start one from a contact's page (🤝 Deal) or with ＋ New deal. Drag a card or use its menu to change the stage; every change is logged on the contact's history. Won and Lost deals stay here for 30 days.</p>
       <section class="stats">
         <div class="stat"><span>Open deals</span><b>${open.length}</b></div>
         <div class="stat"><span>Open upfront</span><b>${money(pipeTotal)}</b><span>+ ${money(pipeMonthly)}/mo</span></div>
@@ -712,9 +765,11 @@
       f.querySelector("[data-deal-cancel]").onclick = () => { slot.innerHTML = ""; if (newFor) history.replaceState(null, "", "#/deals"); };
       const del = f.querySelector("[data-deal-del]");
       if (del) del.onclick = async () => {
-        if (!confirm("Delete this deal? The contact stays in the CRM.")) return;
+        if (!confirm("Delete this deal? The contact stays in the CRM, and it won't be added back automatically.")) return;
+        const gone = deals.find((d) => d.id === del.dataset.dealDel);
         const { error: e } = await sb.from("deals").delete().eq("id", del.dataset.dealDel);
         if (e) return fail(e);
+        if (gone) await sb.from("activities").insert({ lead_id: gone.lead_id, kind: "Note", note: `Deal removed by hand (was ${gone.stage}, ${dealValue(gone)})` });
         toast("Deal deleted"); dealsView();
       };
       f.onsubmit = async (e) => {
