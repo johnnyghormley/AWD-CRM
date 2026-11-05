@@ -506,49 +506,94 @@
     const byEmail = new Map();
     rows.forEach((r) => { const e = r.email.toLowerCase(); (byEmail.get(e) || byEmail.set(e, []).get(e)).push(r); });
     const now = Date.now();
-    return (leads || []).filter((l) => okEmail(l.owner_email) && l.owner_email_status !== "Inferred"
-        && !["Won", "Not Interested", "Disqualified"].includes(l.call_status) && !meeting.has(String(l.id)))
+    const open = (leads || []).filter((l) => okEmail(l.owner_email) && !["Won", "Not Interested", "Disqualified"].includes(l.call_status) && !meeting.has(String(l.id)));
+    const queue = open.filter((l) => l.owner_email_status !== "Inferred")
       .map((l) => {
         const email = l.owner_email.trim(), mine = byEmail.get(email.toLowerCase()) || [];
         if (never.has(email.toLowerCase()) || mine.some((r) => r.replied_at || r.unsubscribed_at || r.bounced_at)) return null;
-        const last = mine.filter((r) => r.sent_at).map((r) => Date.parse(r.sent_at)).sort((a, b) => b - a)[0];
+        const sentRows = mine.filter((r) => r.sent_at);
+        const last = sentRows.map((r) => Date.parse(r.sent_at)).sort((a, b) => b - a)[0];
         const parts = (l.owner_name || "").split("(")[0].trim().split(/\s+/).filter((w) => !/^[A-Z]\.$/.test(w));
         return { lead_id: l.id, email, company: l.business_name, firstname: parts[0] || "", lastname: parts.slice(1).join(" "),
-          due: last ? last + WEEK_MS : now, week: mine.filter((r) => r.sent_at).length + 1, site: !noSite(l.website) };
-      }).filter(Boolean).sort((a, b) => a.due - b.due);
+          due: last ? last + WEEK_MS : now, last, week: sentRows.length + 1, site: !noSite(l.website),
+          from: sentRows.some((r) => /^yahoo:/.test(r.resend_id || "")) ? "Yahoo" : sentRows.length ? "Gmail" : "" };
+      }).filter(Boolean)
+      // Same order as the sender (2026-11-05): no-website contacts first, website contacts only after them; then never-emailed, then oldest.
+      .sort((a, b) => (a.site - b.site) || ((a.last || 0) - (b.last || 0)));
+    const guessed = open.filter((l) => l.owner_email_status === "Inferred")
+      .map((l) => ({ lead_id: l.id, email: l.owner_email.trim(), company: l.business_name, firstname: (l.owner_name || "").split("(")[0].trim(), lastname: "", week: 1 }));
+    return { queue, guessed };
   }
 
+  // Yahoo warm-up (2026-11-05): 5 a day through 11/12, 10 a day through 11/19, then 15. Gmail: 15 a day.
+  const yahooCap = (d = new Date()) => { const k = d.toLocaleDateString("en-CA"); return k <= "2026-11-12" ? 5 : k <= "2026-11-19" ? 10 : 15; };
+
+  // Campaigns-Me weekly email as a workflow (2026-11-05): each step is a box with its count; click one to see its contacts.
+  let wfPick = "sent";
   async function gmailView(c, rows) {
     const { sb, app, esc } = ctx;
     const sent = rows.filter((r) => r.status === "sent" && r.sent_at).sort((a, b) => b.sent_at.localeCompare(a.sent_at));
-    const next = await weeklyQueue(rows);
+    const { queue: next, guessed } = await weeklyQueue(rows);
     const endOfToday = new Date(); endOfToday.setHours(23, 59, 59, 999);
-    const dueToday = next.filter((r) => !r.site && r.due <= endOfToday.getTime());
-    const slot = new Map(dueToday.map((r, i) => [r, i]));
-    const n = (f) => rows.filter(f).length;
-    const tile = (label, v, sub) => `<div class="stat"><span>${label}</span><b>${v}</b>${sub ? `<span>${sub}</span>` : ""}</div>`;
+    const dueNow = (r) => r.due <= endOfToday.getTime();
+    const dueA = next.filter((r) => !r.site && dueNow(r)), dueW = next.filter((r) => r.site && dueNow(r));
+    const waiting = next.filter((r) => !dueNow(r)).sort((a, b) => a.due - b.due);
+    const todayKey = new Date().toLocaleDateString("en-CA");
+    const sentToday = sent.filter((r) => new Date(r.sent_at).toLocaleDateString("en-CA") === todayKey);
+    const yToday = sentToday.filter((r) => /^yahoo:/.test(r.resend_id || "")).length, gToday = sentToday.length - yToday;
+    const room = Math.max(0, 15 - gToday) + Math.max(0, yahooCap() - yToday);
+    const wOn = !!(c.audience && c.audience.w_approved);
+    const people = new Set(sent.map((r) => r.email.toLowerCase())).size;
+    const replied = rows.filter((r) => r.replied_at), stopped = rows.filter((r) => r.unsubscribed_at), bounced = rows.filter((r) => r.bounced_at);
+    const from = (r) => (/^yahoo:/.test(r.resend_id || "") ? "Yahoo" : "Gmail");
     const who = (r) => `${esc(name(r))}<div class="muted small">${r.lead_id ? `<a href="#/lead/${esc(r.lead_id)}">${esc(r.company || "lead")}</a>` : esc(r.company || "")}</div>`;
     const state = (r) => r.unsubscribed_at ? `<span class="pill st-disqualified">Said stop</span>` : r.bounced_at ? `<span class="pill st-donotcall">Bounced</span>`
       : r.replied_at ? `<span class="pill st-won">Replied</span>` : `<span class="pill cm-rs-sent">Sent</span>`;
+    const day = (t) => new Date(t).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+    const node = (key, icon, title, big, sub, cls = "") =>
+      `<button type="button" class="wf-node ${cls} ${wfPick === key ? "on" : ""}" data-wf="${key}"><span class="wf-ico">${icon}</span><span class="wf-t">${title}</span><b>${big}</b>${sub ? `<span class="wf-sub">${sub}</span>` : ""}</button>`;
+    const arrow = `<span class="wf-arrow" aria-hidden="true"></span>`;
+    const sentTable = (list, empty) => `<table class="tbl"><thead><tr><th>Contact</th><th>Email</th><th>#</th><th>From</th><th>Sent</th><th>Status</th><th></th></tr></thead>
+      <tbody>${list.map((r) => `<tr><td>${who(r)}</td><td>${esc(r.email)}</td><td class="small">${r.step || 1}</td><td class="small">${from(r)}</td><td class="small">${ctx.fmtTime(r.sent_at)}</td><td>${state(r)}</td>
+        <td class="small">${r.replied_at || r.unsubscribed_at ? "" : `<button type="button" class="btn ghost small" data-replied="${r.id}">Mark replied</button> <button type="button" class="btn ghost small" data-stop="${r.id}" data-email="${esc(r.email)}">Said stop</button>`}</td></tr>`).join("")
+        || `<tr><td colspan="7" class="muted pad">${empty}</td></tr>`}</tbody></table>`;
+    const queueTable = (list, empty, note) => `<table class="tbl"><thead><tr><th>#</th><th>Contact</th><th>Email</th><th>Email #</th><th>When</th></tr></thead>
+      <tbody>${list.map((r, i) => `<tr><td class="small">${i + 1}</td><td>${who(r)}</td><td>${esc(r.email)}</td><td class="small">${r.week === 1 ? "1st email" : `Email ${r.week}`}${r.from ? ` · ${r.from}` : ""}</td><td class="small">${note(r, i)}</td></tr>`).join("")
+        || `<tr><td colspan="5" class="muted pad">${empty}</td></tr>`}</tbody></table>`;
+    const PANELS = {
+      guessed: ["Guessed emails waiting for a Hunter check", "Each guessed email is checked once with Hunter.io every weekday morning: valid ones join the queue, bad ones are removed, unsure ones are never sent.",
+        queueTable(guessed, "No guessed emails waiting.", () => "Next Hunter check (weekday 8:30 AM)")],
+      a: ["① No website: sent first", "Every due contact without a website goes out before any website contact.",
+        queueTable(dueA, "Everyone without a website already got this week's email.", (r, i) => (i < room ? "Next send (weekday 8:30 AM)" : "Over today's limit: next weekday"))],
+      w: ["② Has a website: only after ①", wOn ? "Gets the website version (W) with whatever room is left once every no-website contact has had this week's email."
+          : "On hold: the website version (W) needs your OK first. After that, these fill any room left once ① is done.",
+        queueTable(dueW, "No website contacts due.", (r, i) => (!wOn ? "On hold (approve version W)" : dueA.length + i < room ? "After ① (room today)" : "After ①, next weekday"))],
+      today: ["Today's sends", `Gmail ${gToday}/15 · Yahoo ${yToday}/${yahooCap()} (warming up). Room left today: ${room}.`, sentTable(sentToday, "Nothing sent yet today. Sends go out weekdays at 8:30 AM.")],
+      sent: ["Every contact emailed", `${sent.length} emails to ${people} contacts, newest first.`, sentTable(sent, "Nothing sent yet.")],
+      waiting: ["Waiting a week", "Already emailed this week. Each comes back into the queue 7 days after its last email.", queueTable(waiting, "Nobody waiting.", (r) => `Back in the queue ${day(r.due)}`)],
+      replied: ["Replied", "A reply stops the emails for good. A \"yes\": call them, book a meeting, then Dex builds the design.", sentTable(replied, "No replies yet.")],
+      stopped: ["Said stop", "Never emailed again (on the Never email list).", sentTable(stopped, "Nobody has said stop.")],
+      bounced: ["Bounced", "Bad address: never emailed again.", sentTable(bounced, "No bounces.")]
+    };
+    if (!PANELS[wfPick]) wfPick = "sent";
+    const [pTitle, pSub, pBody] = PANELS[wfPick];
     app.innerHTML = `
-      <div class="crumbs"><a href="${B.base}">${B.title}</a> <span>›</span> ${esc(c.name)}</div>
-      <div class="page-head"><div><h2 class="h">${esc(c.name)}</h2><p class="muted small" style="margin:2px 0 0">Subject: ${esc(c.subject)}</p></div></div>
-      <p class="muted small tab-hint">Sent by Claude every weekday at 8:30 AM from two accounts: Gmail (johnny.ghormley@gmail.com, up to 15 a day) and Yahoo (johnny.ghormley2@yahoo.com, warming up: 5 a day until 11/12, 10 a day until 11/19, then 15). Up to ${c.daily_cap} a day total. A lead always gets emailed from the same account. Every contact with an email gets one email a week, never more, whatever tab they're in. Skipped: Disqualified, Won, Not Interested, guessed emails, and anyone with a booked meeting. It stops for good when they reply, say stop or bounce. Contacts with a website get the website version (W), which is on hold until you approve its wording. A "yes": call them, book a meeting, then Dex builds the design.</p>
-      <section class="stats">
-        ${tile("Emails sent", sent.length, `${c.daily_cap}/day max`)}${tile("Up next", next.length, `${Math.min(c.daily_cap, dueToday.length)} due today`)}
-        ${tile("Replied", n((r) => r.replied_at))}${tile("Said stop", n((r) => r.unsubscribed_at))}${tile("Bounced", n((r) => r.bounced_at))}
+      <div class="crumbs"><a href="${B.base}/all">${B.title}</a> <span>›</span> ${esc(c.name)}</div>
+      <div class="page-head"><div><h2 class="h">${esc(c.name)}</h2><p class="muted small" style="margin:2px 0 0">Subject: ${esc(c.subject)}</p></div>
+        <div class="page-tools"><a class="btn ghost" href="${B.base}/all">All campaigns</a></div></div>
+      <p class="muted small tab-hint">Sent by Claude every weekday at 8:30 AM from Gmail (15 a day) and Yahoo (warming up to 15 a day by 11/20). Every contact with an email gets one email a week, never more. Contacts without a website go first; website contacts only fill the room left after them. Skipped: Disqualified, Won, Not Interested and booked meetings. Click any step to see its contacts.</p>
+      <section class="card wf">
+        <div class="wf-flow">
+          <div class="wf-col">${node("guessed", "🔎", "Hunter check", guessed.length, "guessed emails waiting")}</div>${arrow}
+          <div class="wf-col">${node("a", "①", "No website", dueA.length, "due now · sent first", "wf-hot")}${node("w", "②", "Has website", dueW.length, wOn ? "due now · after ①" : "on hold: approve W", wOn ? "" : "wf-hold")}</div>${arrow}
+          <div class="wf-col">${node("today", "📤", "Today's sends", sentToday.length, `Gmail ${gToday}/15 · Yahoo ${yToday}/${yahooCap()}`)}</div>${arrow}
+          <div class="wf-col">${node("sent", "✉️", "Emailed", people, `${sent.length} emails total`)}${node("waiting", "⏳", "Waiting a week", waiting.length, "back in 7 days")}</div>${arrow}
+          <div class="wf-col">${node("replied", "💬", "Replied", replied.length, "", "wf-good")}${node("stopped", "✋", "Said stop", stopped.length)}${node("bounced", "⚠️", "Bounced", bounced.length)}</div>
+        </div>
       </section>
-      <section class="card table-wrap"><h3 class="pad" style="margin:0">Sent <span class="muted">(${sent.length})</span></h3><table class="tbl">
-        <thead><tr><th>Contact</th><th>Email</th><th>From</th><th>Sent</th><th>Status</th><th></th></tr></thead>
-        <tbody>${sent.map((r) => `<tr><td>${who(r)}</td><td>${esc(r.email)}</td><td class="small">${/^yahoo:/.test(r.resend_id || "") ? "Yahoo" : "Gmail"}</td><td class="small">${ctx.fmtTime(r.sent_at)}</td><td>${state(r)}</td>
-          <td class="small">${r.replied_at || r.unsubscribed_at ? "" : `<button type="button" class="btn ghost small" data-replied="${r.id}">Mark replied</button> <button type="button" class="btn ghost small" data-stop="${r.id}" data-email="${esc(r.email)}">Said stop</button>`}</td></tr>`).join("")
-          || `<tr><td colspan="6" class="muted pad">Nothing sent yet.</td></tr>`}</tbody></table></section>
-      <section class="card table-wrap"><h3 class="pad" style="margin:0">Up next <span class="muted">(${next.length})</span></h3><table class="tbl">
-        <thead><tr><th>#</th><th>Contact</th><th>Email</th><th>Week</th><th>Due</th></tr></thead>
-        <tbody>${next.map((r, i) => `<tr><td class="small">${i + 1}</td><td>${who(r)}</td><td>${esc(r.email)}</td><td class="small">${r.week === 1 ? "1st email" : `Email ${r.week}`}${r.site ? ' <span class="muted">· W (on hold)</span>' : ""}</td>
-          <td class="small">${r.site ? "On hold until version W is approved" : r.due <= endOfToday.getTime() ? (slot.get(r) < c.daily_cap ? "Today" : "Today (over the daily limit: tomorrow)") : new Date(r.due).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}</td></tr>`).join("")
-          || `<tr><td colspan="5" class="muted pad">No one to email right now.</td></tr>`}</tbody></table></section>
+      <section class="card table-wrap" id="wf-panel"><div class="pad" style="padding-bottom:6px"><h3 style="margin:0">${pTitle}</h3><p class="muted small" style="margin:4px 0 0">${pSub}</p></div>${pBody}</section>
       <details class="card pad"><summary><b>Email content</b></summary><p class="small"><b>Subject:</b> ${esc(c.subject)}</p><pre style="white-space:pre-wrap;font:inherit">${esc(c.body)}</pre></details>`;
+    app.querySelectorAll("[data-wf]").forEach((b) => b.onclick = () => { wfPick = b.dataset.wf; gmailView(c, rows); });
     app.querySelectorAll("[data-replied]").forEach((b) => b.onclick = async () => {
       const { error: e1 } = await sb.from("campaign_sends").update({ replied_at: new Date().toISOString() }).eq("id", b.dataset.replied);
       if (e1) return ctx.fail(e1);
@@ -571,7 +616,10 @@
       ctx = helpers;
       brand = /^\/campaigns-me(\/|$)/.test(route) ? "awd" : "ikw"; B = BRANDS[brand];
       const sub = route.replace(/^\/campaigns(-me)?\/?/, "");
-      if (!sub) return listView();
+      // Campaigns-Me opens straight into the weekly email workflow (2026-11-05); "All campaigns" is /campaigns-me/all.
+      if (!sub && brand === "awd") return ctx.sb.from("campaigns").select("id,audience").eq("brand", "awd").eq("status", "sending")
+        .then(({ data }) => { const g = (data || []).find((x) => x.audience && x.audience.channel === "gmail"); return g ? detailView(g.id) : listView(); });
+      if (!sub || sub === "all") return listView();
       if (sub === "new") return brand === "awd" ? awdNewView() : newView();
       return detailView(sub);
     }
