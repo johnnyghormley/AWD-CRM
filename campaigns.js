@@ -544,6 +544,9 @@
     const room = Math.max(0, 15 - gToday) + Math.max(0, yahooCap() - yToday);
     const wOn = !!(c.audience && c.audience.w_approved);
     const people = new Set(sent.map((r) => r.email.toLowerCase())).size;
+    // Totals strip (2026-11-05): emails sent vs. contacts with an email that haven't been emailed yet.
+    const notYet = next.filter((r) => !r.last), notYetA = notYet.filter((r) => !r.site).length;
+    const weekAgo = Date.now() - WEEK_MS, sentWeek = sent.filter((r) => Date.parse(r.sent_at) >= weekAgo).length;
     const replied = rows.filter((r) => r.replied_at), stopped = rows.filter((r) => r.unsubscribed_at), bounced = rows.filter((r) => r.bounced_at);
     const from = (r) => (/^yahoo:/.test(r.resend_id || "") ? "Yahoo" : "Gmail");
     const who = (r) => `${esc(name(r))}<div class="muted small">${r.lead_id ? `<a href="#/lead/${esc(r.lead_id)}">${esc(r.company || "lead")}</a>` : esc(r.company || "")}</div>`;
@@ -561,8 +564,8 @@
       <tbody>${list.map((r, i) => `<tr><td class="small">${i + 1}</td><td>${who(r)}</td><td>${esc(r.email)}</td><td class="small">${r.week === 1 ? "1st email" : `Email ${r.week}`}${r.from ? ` · ${r.from}` : ""}</td><td class="small">${note(r, i)}</td></tr>`).join("")
         || `<tr><td colspan="5" class="muted pad">${empty}</td></tr>`}</tbody></table>`;
     const PANELS = {
-      guessed: ["Guessed emails waiting for a Hunter check", "Each guessed email is checked once with Hunter.io every weekday morning: valid ones join the queue, bad ones are removed, unsure ones are never sent.",
-        queueTable(guessed, "No guessed emails waiting.", () => "Next Hunter check (weekday 8:30 AM)")],
+      guessed: ["Guessed emails waiting for a Hunter check", "Guessed emails pile up here and are checked with Hunter.io once a month, on the 13th (when the free credits reset): valid ones join the queue, bad ones are removed, unsure ones are never sent.",
+        queueTable(guessed, "No guessed emails waiting.", () => "Monthly Hunter check (13th)")],
       a: ["① No website: sent first", "Every due contact without a website goes out before any website contact.",
         queueTable(dueA, "Everyone without a website already got this week's email.", (r, i) => (i < room ? "Next send (weekday 8:30 AM)" : "Over today's limit: next weekday"))],
       w: ["② Has a website: only after ①", wOn ? "Gets the website version (W) with whatever room is left once every no-website contact has had this week's email."
@@ -582,6 +585,12 @@
       <div class="page-head"><div><h2 class="h">${esc(c.name)}</h2><p class="muted small" style="margin:2px 0 0">Subject: ${esc(c.subject)}</p></div>
         <div class="page-tools"><a class="btn ghost" href="${B.base}/all">All campaigns</a></div></div>
       <p class="muted small tab-hint">Sent by Claude every weekday at 8:30 AM from Gmail (15 a day) and Yahoo (warming up to 15 a day by 11/20). Every contact with an email gets one email a week, never more. Contacts without a website go first; website contacts only fill the room left after them. Skipped: Disqualified, Won, Not Interested and booked meetings. Click any step to see its contacts.</p>
+      <section class="stats">
+        <div class="stat"><span>Total emails sent</span><b>${sent.length}</b><span>to ${people} contacts</span></div>
+        <div class="stat"><span>Not emailed yet</span><b>${notYet.length}</b><span>${notYetA} no website · ${notYet.length - notYetA} with website</span></div>
+        <div class="stat"><span>Sent in the last 7 days</span><b>${sentWeek}</b><span>one per contact per week</span></div>
+        <div class="stat"><span>Guessed emails waiting</span><b>${guessed.length}</b><span>Hunter check on the 13th</span></div>
+      </section>
       <section class="card wf">
         <div class="wf-flow">
           <div class="wf-col">${node("guessed", "🔎", "Hunter check", guessed.length, "guessed emails waiting")}</div>${arrow}
