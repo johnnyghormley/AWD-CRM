@@ -531,16 +531,16 @@
     app.innerHTML = `
       <div class="crumbs"><a href="${B.base}">${B.title}</a> <span>›</span> ${esc(c.name)}</div>
       <div class="page-head"><div><h2 class="h">${esc(c.name)}</h2><p class="muted small" style="margin:2px 0 0">Subject: ${esc(c.subject)}</p></div></div>
-      <p class="muted small tab-hint">Sent from Gmail by Claude (Composio) every day at 10 AM, up to ${c.daily_cap} a day. Every open lead with a verified email and no website gets this email once a week, never more often. It stops when they reply, say stop or get closed out, and pauses while a meeting is booked. A "yes": call them, book a meeting, then Dex builds the design.</p>
+      <p class="muted small tab-hint">Sent by Claude every weekday at 8:30 AM from two accounts: Gmail (johnny.ghormley@gmail.com, up to 15 a day) and Yahoo (johnny.ghormley2@yahoo.com, warming up: 5 a day until 11/12, 10 a day until 11/19, then 15). Up to ${c.daily_cap} a day total. A lead always gets emailed from the same account. Every open lead with a verified email and no website gets this email once a week, never more often. It stops when they reply, say stop or get closed out, and pauses while a meeting is booked. A "yes": call them, book a meeting, then Dex builds the design.</p>
       <section class="stats">
         ${tile("Emails sent", sent.length, `${c.daily_cap}/day max`)}${tile("Up next", next.length, `${Math.min(c.daily_cap, dueToday.length)} due today`)}
         ${tile("Replied", n((r) => r.replied_at))}${tile("Said stop", n((r) => r.unsubscribed_at))}${tile("Bounced", n((r) => r.bounced_at))}
       </section>
       <section class="card table-wrap"><h3 class="pad" style="margin:0">Sent <span class="muted">(${sent.length})</span></h3><table class="tbl">
-        <thead><tr><th>Contact</th><th>Email</th><th>Sent</th><th>Status</th><th></th></tr></thead>
-        <tbody>${sent.map((r) => `<tr><td>${who(r)}</td><td>${esc(r.email)}</td><td class="small">${ctx.fmtTime(r.sent_at)}</td><td>${state(r)}</td>
+        <thead><tr><th>Contact</th><th>Email</th><th>From</th><th>Sent</th><th>Status</th><th></th></tr></thead>
+        <tbody>${sent.map((r) => `<tr><td>${who(r)}</td><td>${esc(r.email)}</td><td class="small">${/^yahoo:/.test(r.resend_id || "") ? "Yahoo" : "Gmail"}</td><td class="small">${ctx.fmtTime(r.sent_at)}</td><td>${state(r)}</td>
           <td class="small">${r.replied_at || r.unsubscribed_at ? "" : `<button type="button" class="btn ghost small" data-replied="${r.id}">Mark replied</button> <button type="button" class="btn ghost small" data-stop="${r.id}" data-email="${esc(r.email)}">Said stop</button>`}</td></tr>`).join("")
-          || `<tr><td colspan="5" class="muted pad">Nothing sent yet.</td></tr>`}</tbody></table></section>
+          || `<tr><td colspan="6" class="muted pad">Nothing sent yet.</td></tr>`}</tbody></table></section>
       <section class="card table-wrap"><h3 class="pad" style="margin:0">Up next <span class="muted">(${next.length})</span></h3><table class="tbl">
         <thead><tr><th>#</th><th>Contact</th><th>Email</th><th>Week</th><th>Due</th></tr></thead>
         <tbody>${next.map((r, i) => `<tr><td class="small">${i + 1}</td><td>${who(r)}</td><td>${esc(r.email)}</td><td class="small">${r.week === 1 ? "1st email" : `Email ${r.week}`}</td>
