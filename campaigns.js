@@ -488,8 +488,9 @@
     };
   }
 
-  // Weekly rule (2026-11-03): every open lead with a verified email and no website gets the email once every 7 days, never more.
-  // It stops for good when they reply or say stop, and pauses while a meeting is booked or the lead is closed out.
+  // Weekly rule (2026-11-03, widened 2026-11-05): every lead with an email gets one email once every 7 days, never more,
+  // whatever tab it's in. Skipped: Disqualified, Won, Not Interested, guessed (Inferred) emails, a booked meeting.
+  // It stops for good when they reply, say stop or bounce. Website leads get version W (held until Johnathon approves it).
   // The daily sender (Claude scheduled task awd-weekly-emails) uses the same rule.
   const WEEK_MS = 7 * 864e5;
   const noSite = (w) => !w || /^(none|n\/a|not found|unknown|-)/i.test(String(w).trim());
@@ -505,15 +506,15 @@
     const byEmail = new Map();
     rows.forEach((r) => { const e = r.email.toLowerCase(); (byEmail.get(e) || byEmail.set(e, []).get(e)).push(r); });
     const now = Date.now();
-    return (leads || []).filter((l) => okEmail(l.owner_email) && l.owner_email_status !== "Inferred" && noSite(l.website)
-        && !["Won", "Not Interested", "Do Not Call", "Disqualified"].includes(l.call_status) && !meeting.has(String(l.id)))
+    return (leads || []).filter((l) => okEmail(l.owner_email) && l.owner_email_status !== "Inferred"
+        && !["Won", "Not Interested", "Disqualified"].includes(l.call_status) && !meeting.has(String(l.id)))
       .map((l) => {
         const email = l.owner_email.trim(), mine = byEmail.get(email.toLowerCase()) || [];
         if (never.has(email.toLowerCase()) || mine.some((r) => r.replied_at || r.unsubscribed_at || r.bounced_at)) return null;
         const last = mine.filter((r) => r.sent_at).map((r) => Date.parse(r.sent_at)).sort((a, b) => b - a)[0];
         const parts = (l.owner_name || "").split("(")[0].trim().split(/\s+/).filter((w) => !/^[A-Z]\.$/.test(w));
         return { lead_id: l.id, email, company: l.business_name, firstname: parts[0] || "", lastname: parts.slice(1).join(" "),
-          due: last ? last + WEEK_MS : now, week: mine.filter((r) => r.sent_at).length + 1 };
+          due: last ? last + WEEK_MS : now, week: mine.filter((r) => r.sent_at).length + 1, site: !noSite(l.website) };
       }).filter(Boolean).sort((a, b) => a.due - b.due);
   }
 
@@ -522,7 +523,8 @@
     const sent = rows.filter((r) => r.status === "sent" && r.sent_at).sort((a, b) => b.sent_at.localeCompare(a.sent_at));
     const next = await weeklyQueue(rows);
     const endOfToday = new Date(); endOfToday.setHours(23, 59, 59, 999);
-    const dueToday = next.filter((r) => r.due <= endOfToday.getTime());
+    const dueToday = next.filter((r) => !r.site && r.due <= endOfToday.getTime());
+    const slot = new Map(dueToday.map((r, i) => [r, i]));
     const n = (f) => rows.filter(f).length;
     const tile = (label, v, sub) => `<div class="stat"><span>${label}</span><b>${v}</b>${sub ? `<span>${sub}</span>` : ""}</div>`;
     const who = (r) => `${esc(name(r))}<div class="muted small">${r.lead_id ? `<a href="#/lead/${esc(r.lead_id)}">${esc(r.company || "lead")}</a>` : esc(r.company || "")}</div>`;
@@ -531,7 +533,7 @@
     app.innerHTML = `
       <div class="crumbs"><a href="${B.base}">${B.title}</a> <span>›</span> ${esc(c.name)}</div>
       <div class="page-head"><div><h2 class="h">${esc(c.name)}</h2><p class="muted small" style="margin:2px 0 0">Subject: ${esc(c.subject)}</p></div></div>
-      <p class="muted small tab-hint">Sent by Claude every weekday at 8:30 AM from two accounts: Gmail (johnny.ghormley@gmail.com, up to 15 a day) and Yahoo (johnny.ghormley2@yahoo.com, warming up: 5 a day until 11/12, 10 a day until 11/19, then 15). Up to ${c.daily_cap} a day total. A lead always gets emailed from the same account. Every open lead with a verified email and no website gets this email once a week, never more often. It stops when they reply, say stop or get closed out, and pauses while a meeting is booked. A "yes": call them, book a meeting, then Dex builds the design.</p>
+      <p class="muted small tab-hint">Sent by Claude every weekday at 8:30 AM from two accounts: Gmail (johnny.ghormley@gmail.com, up to 15 a day) and Yahoo (johnny.ghormley2@yahoo.com, warming up: 5 a day until 11/12, 10 a day until 11/19, then 15). Up to ${c.daily_cap} a day total. A lead always gets emailed from the same account. Every contact with an email gets one email a week, never more, whatever tab they're in. Skipped: Disqualified, Won, Not Interested, guessed emails, and anyone with a booked meeting. It stops for good when they reply, say stop or bounce. Contacts with a website get the website version (W), which is on hold until you approve its wording. A "yes": call them, book a meeting, then Dex builds the design.</p>
       <section class="stats">
         ${tile("Emails sent", sent.length, `${c.daily_cap}/day max`)}${tile("Up next", next.length, `${Math.min(c.daily_cap, dueToday.length)} due today`)}
         ${tile("Replied", n((r) => r.replied_at))}${tile("Said stop", n((r) => r.unsubscribed_at))}${tile("Bounced", n((r) => r.bounced_at))}
@@ -543,8 +545,8 @@
           || `<tr><td colspan="6" class="muted pad">Nothing sent yet.</td></tr>`}</tbody></table></section>
       <section class="card table-wrap"><h3 class="pad" style="margin:0">Up next <span class="muted">(${next.length})</span></h3><table class="tbl">
         <thead><tr><th>#</th><th>Contact</th><th>Email</th><th>Week</th><th>Due</th></tr></thead>
-        <tbody>${next.map((r, i) => `<tr><td class="small">${i + 1}</td><td>${who(r)}</td><td>${esc(r.email)}</td><td class="small">${r.week === 1 ? "1st email" : `Email ${r.week}`}</td>
-          <td class="small">${r.due <= endOfToday.getTime() ? (i < c.daily_cap ? "Today" : "Today (over the daily limit: tomorrow)") : new Date(r.due).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}</td></tr>`).join("")
+        <tbody>${next.map((r, i) => `<tr><td class="small">${i + 1}</td><td>${who(r)}</td><td>${esc(r.email)}</td><td class="small">${r.week === 1 ? "1st email" : `Email ${r.week}`}${r.site ? ' <span class="muted">· W (on hold)</span>' : ""}</td>
+          <td class="small">${r.site ? "On hold until version W is approved" : r.due <= endOfToday.getTime() ? (slot.get(r) < c.daily_cap ? "Today" : "Today (over the daily limit: tomorrow)") : new Date(r.due).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}</td></tr>`).join("")
           || `<tr><td colspan="5" class="muted pad">No one to email right now.</td></tr>`}</tbody></table></section>
       <details class="card pad"><summary><b>Email content</b></summary><p class="small"><b>Subject:</b> ${esc(c.subject)}</p><pre style="white-space:pre-wrap;font:inherit">${esc(c.body)}</pre></details>`;
     app.querySelectorAll("[data-replied]").forEach((b) => b.onclick = async () => {

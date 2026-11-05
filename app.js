@@ -634,6 +634,132 @@
     draw();
   }
 
+  // ---------- Deals (2026-11-05): current ongoing deals, one card per deal, by stage ----------
+  // A deal is started from a lead page (🤝 Deal) or here. Moving it logs the change in the lead's history.
+  const DEAL_STAGES = ["Meeting set", "Design shown", "Payment link sent", "Won", "Lost"];
+  const DEAL_OPEN = DEAL_STAGES.slice(0, 3);
+  const money = (n) => "$" + Number(n || 0).toLocaleString("en-US", { maximumFractionDigits: 2 });
+  const dealValue = (d) => `${money(d.upfront)}${Number(d.monthly) ? ` + ${money(d.monthly)}/mo` : ""}`;
+  async function dealsView(newFor) {
+    const [{ data: deals, error }, { data: leads, error: lErr }] = await Promise.all([
+      sb.from("deals").select("*, leads(business_name, owner_name, owner_phone, business_phone, city)").order("updated_at", { ascending: false }),
+      sb.from("leads").select("id,business_name,city,call_status").neq("call_status", "Disqualified").order("business_name")
+    ]);
+    if (lErr) return fail(lErr);
+    if (error) {
+      app.innerHTML = `<h2 class="h">Deals</h2><section class="card pad"><p><b>One-time setup needed.</b> Paste the file <code>CRM App/app/deals.sql</code> into Supabase → SQL Editor → New query → Run, then reload this page.</p><p class="muted small">${esc(error.message)}</p></section>`;
+      return;
+    }
+    const open = deals.filter((d) => DEAL_OPEN.includes(d.stage));
+    const cutoff = Date.now() - 30 * 864e5;
+    const recent = deals.filter((d) => !DEAL_OPEN.includes(d.stage) && Date.parse(d.closed_at || d.updated_at) >= cutoff);
+    const nb = nav.querySelector('[data-count="deals"]');
+    if (nb) nb.textContent = open.length || "";
+    const pipeTotal = open.reduce((s, d) => s + Number(d.upfront || 0), 0), pipeMonthly = open.reduce((s, d) => s + Number(d.monthly || 0), 0);
+    const leadOpts = (sel) => leads.map((l) => `<option value="${l.id}" ${String(l.id) === String(sel) ? "selected" : ""}>${esc(l.business_name)}${usable(l.city) ? " · " + esc(l.city) : ""}</option>`).join("");
+    const form = (d = {}) => `
+      <form class="deal-form card pad" data-deal="${d.id || ""}">
+        <h3 class="sec-h" style="margin-top:0">${d.id ? "Edit deal" : "New deal"}</h3>
+        <div class="deal-grid">
+          <label>Contact<select name="lead_id" required ${d.id ? "disabled" : ""}><option value="">Pick a contact…</option>${leadOpts(d.lead_id || newFor)}</select></label>
+          <label>Stage<select name="stage">${DEAL_STAGES.map((s) => `<option ${s === (d.stage || "Meeting set") ? "selected" : ""}>${s}</option>`).join("")}</select></label>
+          <label>Package<input name="package" value="${esc(d.package || "New Website")}" autocomplete="off"></label>
+          <label>Upfront ($)<input name="upfront" type="number" min="0" step="1" value="${d.upfront ?? 199}"></label>
+          <label>Monthly ($)<input name="monthly" type="number" min="0" step="1" value="${d.monthly ?? 29}"></label>
+          <label>Expected close<input name="close_date" type="date" value="${d.close_date || ""}"></label>
+          <label class="span2">Next step<input name="next_step" value="${esc(d.next_step || "")}" placeholder="e.g. Send payment link after he picks colors" autocomplete="off"></label>
+          <label class="span2">Notes<textarea name="note" rows="2">${esc(d.note || "")}</textarea></label>
+        </div>
+        <div class="actions"><button class="btn">${d.id ? "Save" : "Add deal"}</button><button type="button" class="btn ghost" data-deal-cancel>Cancel</button>
+          ${d.id ? `<button type="button" class="btn ghost danger" data-deal-del="${d.id}">Delete deal</button>` : ""}</div>
+      </form>`;
+    const card = (d) => {
+      const l = d.leads || {}, phone = usable(l.owner_phone) ? l.owner_phone : l.business_phone;
+      const late = d.close_date && d.close_date < today() && DEAL_OPEN.includes(d.stage);
+      return `<div class="bcard" data-id="${d.id}">
+        <a class="bcard-name" href="#/lead/${d.lead_id}">${esc(l.business_name || "Lead")}</a>
+        <span class="small"><b>${esc(dealValue(d))}</b>${usable(d.package) ? ` · ${esc(d.package)}` : ""}</span>
+        ${usable(l.owner_name) ? `<span class="muted small">${esc(l.owner_name.split(" (")[0])}</span>` : ""}
+        ${usable(d.next_step) ? `<span class="small">Next: ${esc(d.next_step)}</span>` : ""}
+        ${d.close_date ? `<span class="due ${late ? "late" : ""}">${late ? "Overdue · " : "Close by "}${fmtDate(d.close_date)}</span>` : ""}
+        <div class="bcard-foot">
+          ${usable(phone) ? `<a class="bcard-call" href="tel:${esc(tel(phone))}">📞 ${esc(phone)}</a>` : `<span class="muted small">No phone</span>`}
+          <select class="bmove" data-id="${d.id}" aria-label="Move to">${DEAL_STAGES.map((s) => `<option ${s === d.stage ? "selected" : ""}>${s}</option>`).join("")}</select>
+        </div>
+        <button type="button" class="linkbtn small" data-deal-edit="${d.id}">Edit</button>
+      </div>`;
+    };
+    app.innerHTML = `
+      <div class="page-head"><h2 class="h">Deals</h2><div class="page-tools"><button type="button" class="btn" id="deal-new">＋ New deal</button></div></div>
+      <p class="muted small tab-hint">Current ongoing deals. Start one from a contact's page (🤝 Deal) or with ＋ New deal. Drag a card or use its menu to change the stage; every change is logged on the contact's history. Won and Lost deals stay here for 30 days.</p>
+      <section class="stats">
+        <div class="stat"><span>Open deals</span><b>${open.length}</b></div>
+        <div class="stat"><span>Open upfront</span><b>${money(pipeTotal)}</b><span>+ ${money(pipeMonthly)}/mo</span></div>
+        <div class="stat"><span>Won (30 days)</span><b>${recent.filter((d) => d.stage === "Won").length}</b></div>
+      </section>
+      <div id="deal-form-slot">${newFor ? form() : ""}</div>
+      <div class="board-wrap"><div class="board" id="dboard">${DEAL_STAGES.map((s) => {
+        const col = (DEAL_OPEN.includes(s) ? open : recent).filter((d) => d.stage === s);
+        return `<section class="bcol" data-status="${esc(s)}">
+          <header class="bcol-head"><span class="pill">${esc(s)}</span><b>${col.length}</b></header>
+          <div class="bcol-body">${col.map(card).join("") || `<p class="muted small bcol-empty">${DEAL_OPEN.includes(s) ? "Drop a deal here" : "None in the last 30 days"}</p>`}</div>
+        </section>`;
+      }).join("")}</div></div>`;
+    const slot = document.getElementById("deal-form-slot");
+    const wire = () => {
+      const f = slot.querySelector("form"); if (!f) return;
+      f.scrollIntoView({ block: "start", behavior: "smooth" });
+      f.querySelector("[data-deal-cancel]").onclick = () => { slot.innerHTML = ""; if (newFor) history.replaceState(null, "", "#/deals"); };
+      const del = f.querySelector("[data-deal-del]");
+      if (del) del.onclick = async () => {
+        if (!confirm("Delete this deal? The contact stays in the CRM.")) return;
+        const { error: e } = await sb.from("deals").delete().eq("id", del.dataset.dealDel);
+        if (e) return fail(e);
+        toast("Deal deleted"); dealsView();
+      };
+      f.onsubmit = async (e) => {
+        e.preventDefault();
+        const v = Object.fromEntries(new FormData(f));
+        const id = f.dataset.deal, old = id && deals.find((d) => d.id === id);
+        const row = { stage: v.stage, package: v.package.trim() || null, upfront: Number(v.upfront) || 0, monthly: Number(v.monthly) || 0,
+          next_step: v.next_step.trim() || null, close_date: v.close_date || null, note: v.note.trim() || null, updated_at: new Date().toISOString() };
+        if (!DEAL_OPEN.includes(row.stage) && (!old || DEAL_OPEN.includes(old.stage))) row.closed_at = row.updated_at;
+        if (DEAL_OPEN.includes(row.stage)) row.closed_at = null;
+        const leadId = old ? old.lead_id : v.lead_id;
+        const { error: e1 } = id ? await sb.from("deals").update(row).eq("id", id) : await sb.from("deals").insert({ ...row, lead_id: leadId });
+        if (e1) return fail(e1);
+        const note = old ? (old.stage !== row.stage ? `Deal: ${old.stage} → ${row.stage} (${dealValue(row)})` : "") : `Deal started: ${row.stage} (${dealValue(row)})`;
+        if (note) await sb.from("activities").insert({ lead_id: leadId, kind: "Note", note });
+        toast(id ? "Deal saved" : "Deal added");
+        if (newFor) history.replaceState(null, "", "#/deals");
+        dealsView();
+      };
+    };
+    wire();
+    document.getElementById("deal-new").onclick = () => { slot.innerHTML = form(); wire(); };
+    const moveDeal = async (id, to) => {
+      const d = deals.find((x) => x.id === id);
+      if (!d || d.stage === to) return;
+      const now = new Date().toISOString();
+      const { error: e } = await sb.from("deals").update({ stage: to, updated_at: now, closed_at: DEAL_OPEN.includes(to) ? null : now }).eq("id", id);
+      if (e) return fail(e);
+      await sb.from("activities").insert({ lead_id: d.lead_id, kind: "Note", note: `Deal: ${d.stage} → ${to} (${dealValue(d)})` });
+      toast(`Moved to ${to}`); dealsView();
+    };
+    const board = document.getElementById("dboard");
+    board.addEventListener("click", (e) => {
+      const ed = e.target.closest("[data-deal-edit]");
+      if (ed) { slot.innerHTML = form(deals.find((d) => d.id === ed.dataset.dealEdit)); wire(); }
+    });
+    board.addEventListener("change", (e) => { if (e.target.matches(".bmove")) moveDeal(e.target.dataset.id, e.target.value); });
+    board.querySelectorAll(".bcard").forEach((c) => c.draggable = true);
+    board.addEventListener("dragstart", (e) => { const c = e.target.closest(".bcard"); if (!c) return; e.dataTransfer.setData("text/plain", c.dataset.id); c.classList.add("dragging"); });
+    board.addEventListener("dragend", (e) => { const c = e.target.closest(".bcard"); if (c) c.classList.remove("dragging"); });
+    board.addEventListener("dragover", (e) => { const col = e.target.closest(".bcol"); if (!col) return; e.preventDefault(); board.querySelectorAll(".bcol.over").forEach((x) => x !== col && x.classList.remove("over")); col.classList.add("over"); });
+    board.addEventListener("dragleave", (e) => { const col = e.target.closest(".bcol"); if (col && !col.contains(e.relatedTarget)) col.classList.remove("over"); });
+    board.addEventListener("drop", (e) => { const col = e.target.closest(".bcol"); if (!col) return; e.preventDefault(); col.classList.remove("over"); moveDeal(e.dataTransfer.getData("text/plain"), col.dataset.status); });
+  }
+
   // ---------- Tasks: every open follow-up date and booked meeting as a to-do, with due dates ----------
   // Completing a follow-up clears the lead's follow-up date (same as clearing it on the lead page) and logs it;
   // completing a meeting marks it done, like ✓ Done on the lead page.
@@ -817,6 +943,7 @@
           ${mErr ? "" : `<button type="button" data-quick="meet"><i>📅</i>Meeting</button>`}
           <button type="button" data-quick="dex"><i>🎨</i>Design</button>
           <button type="button" data-quick="edit"><i>✏️</i>Edit</button>
+          <a href="#/deals/new/${l.id}"><i>🤝</i>Deal</a>
         </div>
         <div class="actions">
           ${phones.map(([p, t]) => `<a class="btn" href="tel:${esc(tel(p))}">📞 ${esc(t)} · ${esc(p)}</a>`).join("")}
@@ -1227,7 +1354,7 @@ ${links()}`;
     if (!(await session())) return loginView();
     nav.hidden = false;
     const h = location.hash.replace(/^#/, "") || "/";
-    nav.querySelectorAll("a").forEach((a) => a.classList.toggle("on", a.getAttribute("href") === "#" + h || (h.startsWith("/lead/") && a.getAttribute("href") === "#/leads") || (h.startsWith("/campaigns/") && a.getAttribute("href") === "#/campaigns") || (h.startsWith("/campaigns-me/") && a.getAttribute("href") === "#/campaigns-me")));
+    nav.querySelectorAll("a").forEach((a) => a.classList.toggle("on", a.getAttribute("href") === "#" + h || (h.startsWith("/lead/") && a.getAttribute("href") === "#/leads") || (h.startsWith("/deals") && a.getAttribute("href") === "#/deals") || (h.startsWith("/campaigns/") && a.getAttribute("href") === "#/campaigns") || (h.startsWith("/campaigns-me/") && a.getAttribute("href") === "#/campaigns-me")));
     document.body.classList.toggle("full", h === "/designs");
     app.innerHTML = `<p class="muted pad">Loading…</p>`;
     refreshInquiryCount().catch(() => {});
@@ -1238,6 +1365,7 @@ ${links()}`;
       else if (["/ready", "/missing", "/onlyemail", "/called", "/disqualified"].includes(h)) await tabView(h.slice(1));
       else if (h === "/calendar") await calendarView();
       else if (h === "/pipeline") await pipelineView();
+      else if (h === "/deals" || h.startsWith("/deals/new/")) await dealsView(h.startsWith("/deals/new/") ? h.slice(11) : null);
       else if (h === "/tasks") await tasksView();
       else if (h === "/designs") designsView();
       else if (/^\/campaigns(-me)?(\/|$)/.test(h)) await window.AWDCampaigns.view(h, { sb, app, esc, toast, fail, fmtTime, session });

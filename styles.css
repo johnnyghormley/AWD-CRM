@@ -452,3 +452,10 @@ body.full main { max-width: none; height: 100%; min-height: 0; padding: 0; displ
 .cm-step { border: 1px solid #E5EAF0; border-radius: 10px; padding: 12px; margin: 12px 0; display: grid; gap: 8px; }
 .cm-step h4 { margin: 0; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .cm-step label { display: grid; gap: 4px; }
+
+/* Deals tab (2026-11-05) */
+.deal-form { margin: 0 0 16px; }
+.deal-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px 14px; }
+.deal-grid label { display: flex; flex-direction: column; gap: 4px; font-size: .85rem; }
+.deal-grid .span2 { grid-column: 1 / -1; }
+.bcard [data-deal-edit] { align-self: flex-start; }
