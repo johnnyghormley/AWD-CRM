@@ -567,22 +567,19 @@
   function healthCards(sent) {
     const { esc } = ctx;
     const word = { ok: "Healthy", watch: "Watch", risk: "At risk", new: "Not started" };
-    return `<section class="sh"><div class="sh-head"><h3>Sending accounts</h3><span class="muted small">Predicted health from this campaign's sends, bounces, "stop" replies and replies. An estimate, not a number from Gmail or Yahoo.</span></div>
+    // Condensed (2026-11-06, Johnathon: "can you condense them a bit up top"): one short strip per account; details under "Why".
+    return `<section class="sh"><div class="sh-head"><h3>Sending accounts</h3><span class="muted small">Predicted health: an estimate from this campaign's sends, bounces, "stop" replies and replies.</span></div>
       <div class="sh-grid">${SENDERS.map((a) => { const h = senderHealth(a, sent); return `
         <div class="card sh-card sh-${h.level}">
-          <div class="sh-top"><div><b>${esc(a.label)}</b><div class="muted small">${esc(a.email)}</div></div><span class="pill sh-pill">${word[h.level]}</span></div>
-          <div class="sh-score"><b>${h.started ? h.score : "–"}</b><span class="muted small">/100 health</span></div>
+          <div class="sh-top"><div class="sh-name"><b>${esc(a.label)}</b><span class="muted small">${esc(a.email)}</span></div>
+            <div class="sh-score"><b>${h.started ? h.score : "–"}</b><span class="pill sh-pill">${word[h.level]}</span></div></div>
           <div class="sh-bar"><i style="width:${h.started ? h.score : 0}%"></i></div>
-          <dl class="sh-kv">
-            <div><dt>Spam-report chance</dt><dd>${pctTxt(h.spamRate, 2)} per email</dd></div>
-            <div><dt>1+ report this week</dt><dd>${pctTxt(h.weekRisk, 0)} <span class="muted small">at ${h.weekly}/wk</span></dd></div>
-            <div><dt>Bounce rate</dt><dd>${h.n ? pctTxt(h.bounces / h.n) : "–"} <span class="muted small">${h.bounces}/${h.n}</span></dd></div>
-            <div><dt>Replies · said stop</dt><dd>${h.replies} · ${h.stops}</dd></div>
-            <div><dt>Today</dt><dd>${h.today}/${h.cap}</dd></div>
-            <div><dt>Connected</dt><dd>${esc(a.via)} · since ${a.since.slice(5).replace("-", "/")}</dd></div>
-          </dl>
-          ${h.started ? `<ul class="sh-why">${h.why.map(([t, p]) => `<li class="${p > 0 ? "neg" : "pos"}">${esc(t)}</li>`).join("")}</ul>`
-            : `<p class="muted small sh-why">No emails sent from it yet. First sends ${a.since.slice(5).replace("-", "/")}, ${h.cap}/day while it warms up.</p>`}
+          <div class="sh-line small"><span>Spam <b>${pctTxt(h.spamRate, 2)}</b>/email</span><span>Bounce <b>${h.n ? pctTxt(h.bounces / h.n) : "–"}</b></span><span>Today <b>${h.today}/${h.cap}</b></span></div>
+          <details class="sh-more small"><summary>Why</summary>
+            <p class="muted">${h.started ? `1+ spam report this week: ${pctTxt(h.weekRisk, 0)} at ${h.weekly}/wk · ${h.bounces}/${h.n} bounced · ${h.replies} replies · ${h.stops} said stop · ${esc(a.via)} since ${a.since.slice(5).replace("-", "/")}`
+              : `No emails sent yet. First sends ${a.since.slice(5).replace("-", "/")}, ${h.cap}/day while it warms up. ${esc(a.via)}.`}</p>
+            ${h.started ? `<ul class="sh-why">${h.why.map(([t, pen]) => `<li class="${pen > 0 ? "neg" : "pos"}">${esc(t)}</li>`).join("")}</ul>` : ""}
+          </details>
         </div>`; }).join("")}</div></section>`;
   }
 
