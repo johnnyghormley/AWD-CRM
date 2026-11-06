@@ -532,6 +532,60 @@
   // Which account sent a row, from its resend_id prefix ("yahoo:", "awdgmail:"; anything else is Johnny's Gmail).
   const senderOf = (r) => (/^yahoo:/.test(r.resend_id || "") ? "Yahoo" : /^awdgmail:/.test(r.resend_id || "") ? "AWD Gmail" : "Gmail");
 
+  // Sending accounts + predicted health (2026-11-06, Johnathon: "show up top all three emails that are connected and then their health ...
+  // their probability of being reported as spam"). Nothing here comes from Gmail or Yahoo: it's an estimate from this campaign's own
+  // sends, bounces, "stop" replies and replies, plus each account's warm-up stage. Smoothed with priors so a handful of sends doesn't swing it.
+  const SENDERS = [
+    { key: "Gmail", label: "Johnny's Gmail", email: "johnny.ghormley@gmail.com", via: "Composio", since: "2026-11-03", cap: () => 15 },
+    { key: "AWD Gmail", label: "AWD Gmail", email: "affordablewebdesignsawd@gmail.com", via: "Composio", since: "2026-11-09", cap: awdCap },
+    { key: "Yahoo", label: "Yahoo", email: "johnny.ghormley2@yahoo.com", via: "app password", since: "2026-11-05", cap: yahooCap }
+  ];
+  const pctTxt = (x, d = 1) => `${(x * 100).toFixed(d)}%`;
+  function senderHealth(acct, sent) {
+    const mine = sent.filter((r) => senderOf(r) === acct.key), n = mine.length;
+    const todayKey = new Date().toLocaleDateString("en-CA");
+    const today = mine.filter((r) => new Date(r.sent_at).toLocaleDateString("en-CA") === todayKey).length;
+    const bounces = mine.filter((r) => r.bounced_at).length, stops = mine.filter((r) => r.unsubscribed_at).length, replies = mine.filter((r) => r.replied_at).length;
+    const cap = acct.cap(), first = n ? mine.map((r) => r.sent_at).sort()[0].slice(0, 10) : null;
+    const ageDays = first ? Math.floor((Date.now() - Date.parse(first)) / 864e5) : 0;
+    // Bounce rate: 2% prior worth 20 emails. Spam-report rate: 0.2% prior worth 300 emails (typical for cold email from a personal inbox);
+    // every "stop" reply counts as a likely report, since annoyed people often click Report spam instead of replying.
+    const bounceRate = (bounces + 0.4) / (n + 20), spamRate = (0.6 + stops) / (n + 300);
+    const weekly = cap * 5, weekRisk = 1 - Math.pow(1 - spamRate, weekly);
+    let score = 100; const why = [];
+    if (bounceRate > 0.02) { const p = Math.min(40, Math.round((bounceRate - 0.02) * 800)); score -= p; why.push([`Bounces ${bounces} of ${n} (${pctTxt(bounces / Math.max(n, 1))}). Keep under 2%.`, p]); }
+    else if (n) why.push([`Bounces ${bounces} of ${n}: fine.`, 0]);
+    if (spamRate > 0.001) { const p = Math.min(40, Math.round((spamRate - 0.001) / 0.002 * 20)); score -= p; why.push([`Estimated spam reports ${pctTxt(spamRate, 2)} per email (Google wants under 0.10%, never 0.30%).${stops ? ` ${stops} said stop.` : ""}`, p]); }
+    if (n >= 40 && !replies) { score -= 8; why.push(["No replies yet. Replies tell Gmail and Yahoo people want these emails.", 8]); }
+    else if (replies) { const b = Math.min(5, replies * 2); score += b; why.push([`${replies} ${replies === 1 ? "reply" : "replies"}: good sign.`, -b]); }
+    if (n && ageDays < 14) { score -= 5; why.push([`New sender (first email ${first}), still warming up: ${cap}/day today.`, 5]); }
+    if (today > cap) { score -= 15; why.push([`Sent ${today} today, over the ${cap}/day limit.`, 15]); }
+    score = Math.max(0, Math.min(100, score));
+    const started = n > 0, level = !started ? "new" : score >= 85 ? "ok" : score >= 70 ? "watch" : "risk";
+    return { n, today, cap, bounces, stops, replies, spamRate, weekRisk, weekly, score, level, why, started };
+  }
+  function healthCards(sent) {
+    const { esc } = ctx;
+    const word = { ok: "Healthy", watch: "Watch", risk: "At risk", new: "Not started" };
+    return `<section class="sh"><div class="sh-head"><h3>Sending accounts</h3><span class="muted small">Predicted health from this campaign's sends, bounces, "stop" replies and replies. An estimate, not a number from Gmail or Yahoo.</span></div>
+      <div class="sh-grid">${SENDERS.map((a) => { const h = senderHealth(a, sent); return `
+        <div class="card sh-card sh-${h.level}">
+          <div class="sh-top"><div><b>${esc(a.label)}</b><div class="muted small">${esc(a.email)}</div></div><span class="pill sh-pill">${word[h.level]}</span></div>
+          <div class="sh-score"><b>${h.started ? h.score : "–"}</b><span class="muted small">/100 health</span></div>
+          <div class="sh-bar"><i style="width:${h.started ? h.score : 0}%"></i></div>
+          <dl class="sh-kv">
+            <div><dt>Spam-report chance</dt><dd>${pctTxt(h.spamRate, 2)} per email</dd></div>
+            <div><dt>1+ report this week</dt><dd>${pctTxt(h.weekRisk, 0)} <span class="muted small">at ${h.weekly}/wk</span></dd></div>
+            <div><dt>Bounce rate</dt><dd>${h.n ? pctTxt(h.bounces / h.n) : "–"} <span class="muted small">${h.bounces}/${h.n}</span></dd></div>
+            <div><dt>Replies · said stop</dt><dd>${h.replies} · ${h.stops}</dd></div>
+            <div><dt>Today</dt><dd>${h.today}/${h.cap}</dd></div>
+            <div><dt>Connected</dt><dd>${esc(a.via)} · since ${a.since.slice(5).replace("-", "/")}</dd></div>
+          </dl>
+          ${h.started ? `<ul class="sh-why">${h.why.map(([t, p]) => `<li class="${p > 0 ? "neg" : "pos"}">${esc(t)}</li>`).join("")}</ul>`
+            : `<p class="muted small sh-why">No emails sent from it yet. First sends ${a.since.slice(5).replace("-", "/")}, ${h.cap}/day while it warms up.</p>`}
+        </div>`; }).join("")}</div></section>`;
+  }
+
   // Campaigns-Me weekly email as a workflow (2026-11-05): each step is a box with its count; click one to see its contacts.
   let wfPick = "sent";
   async function gmailView(c, rows) {
@@ -590,6 +644,7 @@
       <div class="crumbs"><a href="${B.base}/all">${B.title}</a> <span>›</span> ${esc(c.name)}</div>
       <div class="page-head"><div><h2 class="h">${esc(c.name)}</h2><p class="muted small" style="margin:2px 0 0">Subject: ${esc(c.subject)}</p></div>
         <div class="page-tools"><a class="btn ghost" href="${B.base}/all">All campaigns</a></div></div>
+      ${healthCards(sent)}
       <p class="muted small tab-hint">Sent by Claude every weekday at 8:30 AM from Johnny's Gmail (15 a day), the AWD Gmail (warming up to 15 a day by 11/23) and Yahoo (warming up to 15 a day by 11/20). Every contact with an email gets one email a week, never more. Contacts without a website go first; website contacts only fill the room left after them. Skipped: Disqualified, Won, Not Interested and booked meetings. Click any step to see its contacts.</p>
       <section class="stats">
         <div class="stat"><span>Total emails sent</span><b>${sent.length}</b><span>to ${people} contacts</span></div>
