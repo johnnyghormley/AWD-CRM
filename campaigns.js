@@ -516,7 +516,7 @@
         const parts = (l.owner_name || "").split("(")[0].trim().split(/\s+/).filter((w) => !/^[A-Z]\.$/.test(w));
         return { lead_id: l.id, email, company: l.business_name, firstname: parts[0] || "", lastname: parts.slice(1).join(" "),
           due: last ? last + WEEK_MS : now, last, week: sentRows.length + 1, site: !noSite(l.website),
-          from: sentRows.some((r) => /^yahoo:/.test(r.resend_id || "")) ? "Yahoo" : sentRows.length ? "Gmail" : "" };
+          from: sentRows.length ? senderOf(sentRows[0]) : "" };
       }).filter(Boolean)
       // Same order as the sender (2026-11-05): no-website contacts first, website contacts only after them; then never-emailed, then oldest.
       .sort((a, b) => (a.site - b.site) || ((a.last || 0) - (b.last || 0)));
@@ -527,6 +527,10 @@
 
   // Yahoo warm-up (2026-11-05): 5 a day through 11/12, 10 a day through 11/19, then 15. Gmail: 15 a day.
   const yahooCap = (d = new Date()) => { const k = d.toLocaleDateString("en-CA"); return k <= "2026-11-12" ? 5 : k <= "2026-11-19" ? 10 : 15; };
+  // AWD Gmail (affordablewebdesignsawd@gmail.com, added 2026-11-06) warm-up: 5 a day through 11/13, 10 a day through 11/20, then 15.
+  const awdCap = (d = new Date()) => { const k = d.toLocaleDateString("en-CA"); return k <= "2026-11-13" ? 5 : k <= "2026-11-20" ? 10 : 15; };
+  // Which account sent a row, from its resend_id prefix ("yahoo:", "awdgmail:"; anything else is Johnny's Gmail).
+  const senderOf = (r) => (/^yahoo:/.test(r.resend_id || "") ? "Yahoo" : /^awdgmail:/.test(r.resend_id || "") ? "AWD Gmail" : "Gmail");
 
   // Campaigns-Me weekly email as a workflow (2026-11-05): each step is a box with its count; click one to see its contacts.
   let wfPick = "sent";
@@ -540,15 +544,17 @@
     const waiting = next.filter((r) => !dueNow(r)).sort((a, b) => a.due - b.due);
     const todayKey = new Date().toLocaleDateString("en-CA");
     const sentToday = sent.filter((r) => new Date(r.sent_at).toLocaleDateString("en-CA") === todayKey);
-    const yToday = sentToday.filter((r) => /^yahoo:/.test(r.resend_id || "")).length, gToday = sentToday.length - yToday;
-    const room = Math.max(0, 15 - gToday) + Math.max(0, yahooCap() - yToday);
+    const yToday = sentToday.filter((r) => senderOf(r) === "Yahoo").length, aToday = sentToday.filter((r) => senderOf(r) === "AWD Gmail").length;
+    const gToday = sentToday.length - yToday - aToday;
+    const room = Math.max(0, 15 - gToday) + Math.max(0, yahooCap() - yToday) + Math.max(0, awdCap() - aToday);
+    const todayLine = `Gmail ${gToday}/15 · AWD Gmail ${aToday}/${awdCap()} · Yahoo ${yToday}/${yahooCap()}`;
     const wOn = !!(c.audience && c.audience.w_approved);
     const people = new Set(sent.map((r) => r.email.toLowerCase())).size;
     // Totals strip (2026-11-05): emails sent vs. contacts with an email that haven't been emailed yet.
     const notYet = next.filter((r) => !r.last), notYetA = notYet.filter((r) => !r.site).length;
     const weekAgo = Date.now() - WEEK_MS, sentWeek = sent.filter((r) => Date.parse(r.sent_at) >= weekAgo).length;
     const replied = rows.filter((r) => r.replied_at), stopped = rows.filter((r) => r.unsubscribed_at), bounced = rows.filter((r) => r.bounced_at);
-    const from = (r) => (/^yahoo:/.test(r.resend_id || "") ? "Yahoo" : "Gmail");
+    const from = senderOf;
     const who = (r) => `${esc(name(r))}<div class="muted small">${r.lead_id ? `<a href="#/lead/${esc(r.lead_id)}">${esc(r.company || "lead")}</a>` : esc(r.company || "")}</div>`;
     const state = (r) => r.unsubscribed_at ? `<span class="pill st-disqualified">Said stop</span>` : r.bounced_at ? `<span class="pill st-donotcall">Bounced</span>`
       : r.replied_at ? `<span class="pill st-won">Replied</span>` : `<span class="pill cm-rs-sent">Sent</span>`;
@@ -571,7 +577,7 @@
       w: ["② Has a website: only after ①", wOn ? "Gets the website version (W) with whatever room is left once every no-website contact has had this week's email."
           : "On hold: the website version (W) needs your OK first. After that, these fill any room left once ① is done.",
         queueTable(dueW, "No website contacts due.", (r, i) => (!wOn ? "On hold (approve version W)" : dueA.length + i < room ? "After ① (room today)" : "After ①, next weekday"))],
-      today: ["Today's sends", `Gmail ${gToday}/15 · Yahoo ${yToday}/${yahooCap()} (warming up). Room left today: ${room}.`, sentTable(sentToday, "Nothing sent yet today. Sends go out weekdays at 8:30 AM.")],
+      today: ["Today's sends", `${todayLine} (AWD Gmail and Yahoo warming up). Room left today: ${room}.`, sentTable(sentToday, "Nothing sent yet today. Sends go out weekdays at 8:30 AM.")],
       sent: ["Every contact emailed", `${sent.length} emails to ${people} contacts, newest first.`, sentTable(sent, "Nothing sent yet.")],
       waiting: ["Waiting a week", "Already emailed this week. Each comes back into the queue 7 days after its last email.", queueTable(waiting, "Nobody waiting.", (r) => `Back in the queue ${day(r.due)}`)],
       replied: ["Replied", "A reply stops the emails for good. A \"yes\": call them, book a meeting, then Dex builds the design.", sentTable(replied, "No replies yet.")],
@@ -584,7 +590,7 @@
       <div class="crumbs"><a href="${B.base}/all">${B.title}</a> <span>›</span> ${esc(c.name)}</div>
       <div class="page-head"><div><h2 class="h">${esc(c.name)}</h2><p class="muted small" style="margin:2px 0 0">Subject: ${esc(c.subject)}</p></div>
         <div class="page-tools"><a class="btn ghost" href="${B.base}/all">All campaigns</a></div></div>
-      <p class="muted small tab-hint">Sent by Claude every weekday at 8:30 AM from Gmail (15 a day) and Yahoo (warming up to 15 a day by 11/20). Every contact with an email gets one email a week, never more. Contacts without a website go first; website contacts only fill the room left after them. Skipped: Disqualified, Won, Not Interested and booked meetings. Click any step to see its contacts.</p>
+      <p class="muted small tab-hint">Sent by Claude every weekday at 8:30 AM from Johnny's Gmail (15 a day), the AWD Gmail (warming up to 15 a day by 11/23) and Yahoo (warming up to 15 a day by 11/20). Every contact with an email gets one email a week, never more. Contacts without a website go first; website contacts only fill the room left after them. Skipped: Disqualified, Won, Not Interested and booked meetings. Click any step to see its contacts.</p>
       <section class="stats">
         <div class="stat"><span>Total emails sent</span><b>${sent.length}</b><span>to ${people} contacts</span></div>
         <div class="stat"><span>Not emailed yet</span><b>${notYet.length}</b><span>${notYetA} no website · ${notYet.length - notYetA} with website</span></div>
@@ -595,7 +601,7 @@
         <div class="wf-flow">
           <div class="wf-col">${node("guessed", "🔎", "Hunter check", guessed.length, "guessed emails waiting")}</div>${arrow}
           <div class="wf-col">${node("a", "①", "No website", dueA.length, "due now · sent first", "wf-hot")}${node("w", "②", "Has website", dueW.length, wOn ? "due now · after ①" : "on hold: approve W", wOn ? "" : "wf-hold")}</div>${arrow}
-          <div class="wf-col">${node("today", "📤", "Today's sends", sentToday.length, `Gmail ${gToday}/15 · Yahoo ${yToday}/${yahooCap()}`)}</div>${arrow}
+          <div class="wf-col">${node("today", "📤", "Today's sends", sentToday.length, todayLine)}</div>${arrow}
           <div class="wf-col">${node("sent", "✉️", "Emailed", people, `${sent.length} emails total`)}${node("waiting", "⏳", "Waiting a week", waiting.length, "back in 7 days")}</div>${arrow}
           <div class="wf-col">${node("replied", "💬", "Replied", replied.length, "", "wf-good")}${node("stopped", "✋", "Said stop", stopped.length)}${node("bounced", "⚠️", "Bounced", bounced.length)}</div>
         </div>
