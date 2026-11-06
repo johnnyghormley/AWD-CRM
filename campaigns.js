@@ -525,10 +525,9 @@
     return { queue, guessed };
   }
 
-  // Yahoo warm-up (2026-11-05): 5 a day through 11/12, 10 a day through 11/19, then 15. Gmail: 15 a day.
-  const yahooCap = (d = new Date()) => { const k = d.toLocaleDateString("en-CA"); return k <= "2026-11-12" ? 5 : k <= "2026-11-19" ? 10 : 15; };
-  // AWD Gmail (affordablewebdesignsawd@gmail.com, added 2026-11-06) warm-up: 5 a day through 11/13, 10 a day through 11/20, then 15.
-  const awdCap = (d = new Date()) => { const k = d.toLocaleDateString("en-CA"); return k <= "2026-11-13" ? 5 : k <= "2026-11-20" ? 10 : 15; };
+  // All three accounts send up to 15 a day. No warm-up for Yahoo or the AWD Gmail: both are older accounts (Johnathon 2026-11-06).
+  const yahooCap = () => 15;
+  const awdCap = () => 15;
   // Which account sent a row, from its resend_id prefix ("yahoo:", "awdgmail:"; anything else is Johnny's Gmail).
   const senderOf = (r) => (/^yahoo:/.test(r.resend_id || "") ? "Yahoo" : /^awdgmail:/.test(r.resend_id || "") ? "AWD Gmail" : "Gmail");
 
@@ -537,7 +536,7 @@
   // sends, bounces, "stop" replies and replies, plus each account's warm-up stage. Smoothed with priors so a handful of sends doesn't swing it.
   const SENDERS = [
     { key: "Gmail", label: "Johnny's Gmail", email: "johnny.ghormley@gmail.com", via: "Composio", since: "2026-11-03", cap: () => 15 },
-    { key: "AWD Gmail", label: "AWD Gmail", email: "affordablewebdesignsawd@gmail.com", via: "Composio", since: "2026-11-09", cap: awdCap },
+    { key: "AWD Gmail", label: "AWD Gmail", email: "affordablewebdesignsawd@gmail.com", via: "Composio", since: "2026-11-06", cap: awdCap },
     { key: "Yahoo", label: "Yahoo", email: "johnny.ghormley2@yahoo.com", via: "app password", since: "2026-11-05", cap: yahooCap }
   ];
   const pctTxt = (x, d = 1) => `${(x * 100).toFixed(d)}%`;
@@ -558,7 +557,7 @@
     if (spamRate > 0.001) { const p = Math.min(40, Math.round((spamRate - 0.001) / 0.002 * 20)); score -= p; why.push([`Estimated spam reports ${pctTxt(spamRate, 2)} per email (Google wants under 0.10%, never 0.30%).${stops ? ` ${stops} said stop.` : ""}`, p]); }
     if (n >= 40 && !replies) { score -= 8; why.push(["No replies yet. Replies tell Gmail and Yahoo people want these emails.", 8]); }
     else if (replies) { const b = Math.min(5, replies * 2); score += b; why.push([`${replies} ${replies === 1 ? "reply" : "replies"}: good sign.`, -b]); }
-    if (n && ageDays < 14) { score -= 5; why.push([`New sender (first email ${first}), still warming up: ${cap}/day today.`, 5]); }
+    if (n && ageDays < 14) { score -= 5; why.push([`New sender (first email ${first}), new to cold email: ${cap}/day.`, 5]); }
     if (today > cap) { score -= 15; why.push([`Sent ${today} today, over the ${cap}/day limit.`, 15]); }
     score = Math.max(0, Math.min(100, score));
     const started = n > 0, level = !started ? "new" : score >= 85 ? "ok" : score >= 70 ? "watch" : "risk";
@@ -577,7 +576,7 @@
           <div class="sh-line small"><span>Spam <b>${pctTxt(h.spamRate, 2)}</b>/email</span><span>Bounce <b>${h.n ? pctTxt(h.bounces / h.n) : "–"}</b></span><span>Today <b>${h.today}/${h.cap}</b></span></div>
           <details class="sh-more small"><summary>Why</summary>
             <p class="muted">${h.started ? `1+ spam report this week: ${pctTxt(h.weekRisk, 0)} at ${h.weekly}/wk · ${h.bounces}/${h.n} bounced · ${h.replies} replies · ${h.stops} said stop · ${esc(a.via)} since ${a.since.slice(5).replace("-", "/")}`
-              : `No emails sent yet. First sends ${a.since.slice(5).replace("-", "/")}, ${h.cap}/day while it warms up. ${esc(a.via)}.`}</p>
+              : `No emails sent yet. First sends ${a.since.slice(5).replace("-", "/")}, ${h.cap}/day. ${esc(a.via)}.`}</p>
             ${h.started ? `<ul class="sh-why">${h.why.map(([t, pen]) => `<li class="${pen > 0 ? "neg" : "pos"}">${esc(t)}</li>`).join("")}</ul>` : ""}
           </details>
         </div>`; }).join("")}</div></section>`;
@@ -628,7 +627,7 @@
       w: ["② Has a website: only after ①", wOn ? "Gets the website version (W) with whatever room is left once every no-website contact has had this week's email."
           : "On hold: the website version (W) needs your OK first. After that, these fill any room left once ① is done.",
         queueTable(dueW, "No website contacts due.", (r, i) => (!wOn ? "On hold (approve version W)" : dueA.length + i < room ? "After ① (room today)" : "After ①, next weekday"))],
-      today: ["Today's sends", `${todayLine} (AWD Gmail and Yahoo warming up). Room left today: ${room}.`, sentTable(sentToday, "Nothing sent yet today. Sends go out weekdays at 8:30 AM.")],
+      today: ["Today's sends", `${todayLine}. Room left today: ${room}.`, sentTable(sentToday, "Nothing sent yet today. Sends go out weekdays at 8:30 AM.")],
       sent: ["Every contact emailed", `${sent.length} emails to ${people} contacts, newest first.`, sentTable(sent, "Nothing sent yet.")],
       waiting: ["Waiting a week", "Already emailed this week. Each comes back into the queue 7 days after its last email.", queueTable(waiting, "Nobody waiting.", (r) => `Back in the queue ${day(r.due)}`)],
       replied: ["Replied", "A reply stops the emails for good. A \"yes\": call them, book a meeting, then Dex builds the design.", sentTable(replied, "No replies yet.")],
@@ -642,7 +641,7 @@
       <div class="page-head"><div><h2 class="h">${esc(c.name)}</h2><p class="muted small" style="margin:2px 0 0">Subject: ${esc(c.subject)}</p></div>
         <div class="page-tools"><a class="btn ghost" href="${B.base}/all">All campaigns</a></div></div>
       ${healthCards(sent)}
-      <p class="muted small tab-hint">Sent by Claude every weekday at 8:30 AM from Johnny's Gmail (15 a day), the AWD Gmail (warming up to 15 a day by 11/23) and Yahoo (warming up to 15 a day by 11/20). Every contact with an email gets one email a week, never more. Contacts without a website go first; website contacts only fill the room left after them. Skipped: Disqualified, Won, Not Interested and booked meetings. Click any step to see its contacts.</p>
+      <p class="muted small tab-hint">Sent by Claude every weekday at 8:30 AM from Johnny's Gmail (15 a day), the AWD Gmail (15 a day) and Yahoo (15 a day). Every contact with an email gets one email a week, never more. Contacts without a website go first; website contacts only fill the room left after them. Skipped: Disqualified, Won, Not Interested and booked meetings. Click any step to see its contacts.</p>
       <section class="stats">
         <div class="stat"><span>Total emails sent</span><b>${sent.length}</b><span>to ${people} contacts</span></div>
         <div class="stat"><span>Not emailed yet</span><b>${notYet.length}</b><span>${notYetA} no website · ${notYet.length - notYetA} with website</span></div>
