@@ -98,8 +98,8 @@
   async function session() { return (await sb.auth.getSession()).data.session; }
 
   // ---------- roles (2026-11-08): admin (Johnathon) vs employee ----------
-  // Employees can't see Campaigns-Me, Campaigns-Dad, Designs or Team. The database blocks those tables for them too (roles.sql).
-  const ADMIN_ROUTE = /^\/(campaigns(-me)?(\/|$)|designs$|team$)/;
+  // Employees can't see Campaigns-Me, Campaigns-Dad, Designs, Deals, Pipeline or Team. The database blocks those tables for them too (roles.sql).
+  const ADMIN_ROUTE = /^\/(campaigns(-me)?(\/|$)|designs$|deals(\/|$)|pipeline$|team$)/;
   let role = null, roleFor = null;
   async function loadRole(s) {
     if (roleFor === s.user.id && role) return role;
@@ -1049,9 +1049,9 @@
           ${usable(l.owner_email) ? `<a href="mailto:${esc(l.owner_email)}"><i>✉️</i>Email</a>` : ""}
           ${phones.length ? `<a href="tel:${esc(tel(phones[0][0]))}"><i>📞</i>Call</a>` : ""}
           ${mErr ? "" : `<button type="button" data-quick="meet"><i>📅</i>Meeting</button>`}
-          <button type="button" data-quick="dex"><i>🎨</i>Design</button>
+          ${isAdmin() ? `<button type="button" data-quick="dex"><i>🎨</i>Design</button>` : ""}
           <button type="button" data-quick="edit"><i>✏️</i>Edit</button>
-          <a href="#/deals/new/${l.id}"><i>🤝</i>Deal</a>
+          ${isAdmin() ? `<a href="#/deals/new/${l.id}"><i>🤝</i>Deal</a>` : ""}
         </div>
         <div class="actions">
           ${phones.map(([p, t]) => `<a class="btn" href="tel:${esc(tel(p))}">📞 ${esc(t)} · ${esc(p)}</a>`).join("")}
@@ -1464,7 +1464,7 @@ ${links()}`;
     const me = (await session()).user.id;
     app.innerHTML = `
       <div class="pad"><h2>Team</h2>
-      <p class="muted small tab-hint">Everyone who can sign in to the CRM. <b>Employees</b> see and work the leads (Today, Search, Inquired, every lead tab, Pipeline, Deals, Tasks, Calendar, Script, Add lead, Import) but not Campaigns-Me, Campaigns-Dad, Designs or this page; the database blocks those for them too.
+      <p class="muted small tab-hint">Everyone who can sign in to the CRM. <b>Employees</b> see and work the leads (Today, Search, Inquired, every lead tab, Tasks, Calendar, Script, Add lead, Import) but not Campaigns-Me, Campaigns-Dad, Designs, Deals, Pipeline or this page; the database blocks campaign, design and deal data for them too.
       To add someone, tell Claude “invite <i>their email</i> to the CRM” (runs <code>CRM App/sync/crm_invite.py</code>), or in Supabase go to Authentication → Users → Invite user. They get an email, click the link, and choose their own password. New logins start as Employee.</p>
       <div class="card">${(users || []).map((u) => `
         <div class="row"><div class="row-main"><b>${esc(u.email || u.user_id)}</b><span class="muted">Added ${fmtTime(u.created_at)}${u.user_id === me ? " · you" : ""}</span></div>

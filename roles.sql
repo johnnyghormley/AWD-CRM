@@ -1,9 +1,10 @@
 -- CRM roles: admin vs employee (2026-11-08). Run once in Supabase → SQL Editor, after the other .sql files. Safe to re-run.
 --
 -- admin    = Johnathon. Sees everything.
--- employee = everyone else who can sign in. Sees and works the leads (Tasks, Calendar, Deals, Pipeline, Disqualified,
---            Called, Only email, Missing info, Ready, All leads, Search, Today, Inquired, Script, Add lead, Import)
---            but NOT Campaigns-Me, Campaigns-Dad or Designs. The database blocks those tables for employees too,
+-- employee = everyone else who can sign in. Sees and works the leads (Tasks, Calendar, Disqualified, Called, Only email,
+--            Missing info, Ready, All leads, Search, Today, Inquired, Script, Add lead, Import)
+--            but NOT Campaigns-Me, Campaigns-Dad, Designs, Deals or Pipeline (Deals + Pipeline added 2026-11-08).
+--            The database blocks campaign, design and deal tables for employees too,
 --            so hiding the buttons isn't the only protection.
 -- Anyone without a row here counts as an employee (never as an admin).
 -- The scheduled agents (Ivy, Rob, Dex scripts) use the secret key, which skips these rules, so they keep working.
@@ -47,11 +48,12 @@ insert into public.crm_users (user_id, email, role)
   on conflict (user_id) do nothing;
 update public.crm_users set role = 'admin' where lower(email) = 'johnny.ghormley@gmail.com';
 
--- Admin-only tables: Campaigns-Me / Campaigns-Dad (campaigns.sql) and Designs (designs.sql).
+-- Admin-only tables: Campaigns-Me / Campaigns-Dad (campaigns.sql), Designs (designs.sql) and Deals (deals.sql).
+-- (Pipeline is built from the leads table, which employees need, so Pipeline is hidden in the app only.)
 do $$
 declare t text;
 begin
-  foreach t in array array['campaigns', 'campaign_sends', 'email_templates', 'email_unsubscribes', 'designs', 'design_requests'] loop
+  foreach t in array array['campaigns', 'campaign_sends', 'email_templates', 'email_unsubscribes', 'designs', 'design_requests', 'deals'] loop
     execute format('drop policy if exists "signed in only" on public.%I', t);
     execute format('drop policy if exists "admins only" on public.%I', t);
     execute format('create policy "admins only" on public.%I for all to authenticated using (public.is_crm_admin()) with check (public.is_crm_admin())', t);
@@ -64,4 +66,4 @@ drop policy if exists "designs bucket admins" on storage.objects;
 create policy "designs bucket admins" on storage.objects for all to authenticated
   using (bucket_id = 'designs' and public.is_crm_admin()) with check (bucket_id = 'designs' and public.is_crm_admin());
 
--- Unchanged: leads, activities, meetings, deals, inquiries stay open to every signed-in person (admin and employee).
+-- Unchanged: leads, activities, meetings, inquiries stay open to every signed-in person (admin and employee).
