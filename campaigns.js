@@ -525,11 +525,13 @@
     return { queue, guessed };
   }
 
-  // All three accounts send up to 15 a day. No warm-up for Yahoo or the AWD Gmail: both are older accounts (Johnathon 2026-11-06).
+  // All four accounts send up to 15 a day. No warm-up for Yahoo or the AWD Gmail: both are older accounts (Johnathon 2026-11-06).
+  // AWD3 Gmail added 2026-11-09, also 15 a day from the start (Johnathon: "Keep 15 a day").
   const yahooCap = () => 15;
   const awdCap = () => 15;
-  // Which account sent a row, from its resend_id prefix ("yahoo:", "awdgmail:"; anything else is Johnny's Gmail).
-  const senderOf = (r) => (/^yahoo:/.test(r.resend_id || "") ? "Yahoo" : /^awdgmail:/.test(r.resend_id || "") ? "AWD Gmail" : "Gmail");
+  const awd3Cap = () => 15;
+  // Which account sent a row, from its resend_id prefix ("yahoo:", "awdgmail:", "awd3:"; anything else is Johnny's Gmail).
+  const senderOf = (r) => { const id = r.resend_id || ""; return /^yahoo:/.test(id) ? "Yahoo" : /^awdgmail:/.test(id) ? "AWD Gmail" : /^awd3:/.test(id) ? "AWD3 Gmail" : "Gmail"; };
 
   // Sending accounts + predicted health (2026-11-06, Johnathon: "show up top all three emails that are connected and then their health ...
   // their probability of being reported as spam"). Nothing here comes from Gmail or Yahoo: it's an estimate from this campaign's own
@@ -537,6 +539,7 @@
   const SENDERS = [
     { key: "Gmail", label: "Johnny's Gmail", email: "johnny.ghormley@gmail.com", via: "Composio", since: "2026-11-03", cap: () => 15 },
     { key: "AWD Gmail", label: "AWD Gmail", email: "affordablewebdesignsawd@gmail.com", via: "Composio", since: "2026-11-06", cap: awdCap },
+    { key: "AWD3 Gmail", label: "AWD3 Gmail", email: "johnnyghormley742@gmail.com", via: "Composio", since: "2026-11-10", cap: awd3Cap },
     { key: "Yahoo", label: "Yahoo", email: "johnny.ghormley2@yahoo.com", via: "app password", since: "2026-11-05", cap: yahooCap }
   ];
   const pctTxt = (x, d = 1) => `${(x * 100).toFixed(d)}%`;
@@ -595,9 +598,10 @@
     const todayKey = new Date().toLocaleDateString("en-CA");
     const sentToday = sent.filter((r) => new Date(r.sent_at).toLocaleDateString("en-CA") === todayKey);
     const yToday = sentToday.filter((r) => senderOf(r) === "Yahoo").length, aToday = sentToday.filter((r) => senderOf(r) === "AWD Gmail").length;
-    const gToday = sentToday.length - yToday - aToday;
-    const room = Math.max(0, 15 - gToday) + Math.max(0, yahooCap() - yToday) + Math.max(0, awdCap() - aToday);
-    const todayLine = `Gmail ${gToday}/15 · AWD Gmail ${aToday}/${awdCap()} · Yahoo ${yToday}/${yahooCap()}`;
+    const a3Today = sentToday.filter((r) => senderOf(r) === "AWD3 Gmail").length;
+    const gToday = sentToday.length - yToday - aToday - a3Today;
+    const room = Math.max(0, 15 - gToday) + Math.max(0, yahooCap() - yToday) + Math.max(0, awdCap() - aToday) + Math.max(0, awd3Cap() - a3Today);
+    const todayLine = `Gmail ${gToday}/15 · AWD Gmail ${aToday}/${awdCap()} · AWD3 Gmail ${a3Today}/${awd3Cap()} · Yahoo ${yToday}/${yahooCap()}`;
     const wOn = !!(c.audience && c.audience.w_approved);
     const people = new Set(sent.map((r) => r.email.toLowerCase())).size;
     // Totals strip (2026-11-05): emails sent vs. contacts with an email that haven't been emailed yet.
@@ -641,7 +645,7 @@
       <div class="page-head"><div><h2 class="h">${esc(c.name)}</h2><p class="muted small" style="margin:2px 0 0">Subject: ${esc(c.subject)}</p></div>
         <div class="page-tools"><a class="btn ghost" href="${B.base}/all">All campaigns</a></div></div>
       ${healthCards(sent)}
-      <p class="muted small tab-hint">Sent by Claude every weekday at 8:30 AM from Johnny's Gmail (15 a day), the AWD Gmail (15 a day) and Yahoo (15 a day). Every contact with an email gets one email a week, never more. Contacts without a website go first; website contacts only fill the room left after them. Skipped: Disqualified, Won, Not Interested and booked meetings. Click any step to see its contacts.</p>
+      <p class="muted small tab-hint">Sent by Claude every weekday at 8:30 AM from Johnny's Gmail (15 a day), the AWD Gmail (15 a day), the AWD3 Gmail (15 a day) and Yahoo (15 a day). Every contact with an email gets one email a week, never more. Contacts without a website go first; website contacts only fill the room left after them. Skipped: Disqualified, Won, Not Interested and booked meetings. Click any step to see its contacts.</p>
       <section class="stats">
         <div class="stat"><span>Total emails sent</span><b>${sent.length}</b><span>to ${people} contacts</span></div>
         <div class="stat"><span>Not emailed yet</span><b>${notYet.length}</b><span>${notYetA} no website · ${notYet.length - notYetA} with website</span></div>
