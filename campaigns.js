@@ -497,11 +497,13 @@
   const okEmail = (v) => v && !/^(unknown|none|n\/a|not found)$/i.test(String(v).trim());
   async function weeklyQueue(rows) {
     const { sb } = ctx;
-    const [{ data: leads }, { data: meets }, { data: unsubs }] = await Promise.all([
+    const [{ data: leads }, { data: meets }, { data: unsubs }, { data: deals }] = await Promise.all([
       sb.from("leads").select("id,business_name,owner_name,owner_email,owner_email_status,website,call_status").limit(5000),
       sb.from("meetings").select("lead_id").eq("status", "scheduled"),
-      sb.from("email_unsubscribes").select("email")]);
-    const meeting = new Set((meets || []).map((m) => String(m.lead_id)));
+      sb.from("email_unsubscribes").select("email"),
+      sb.from("deals").select("lead_id").is("closed_at", null)]);
+    // Leads with an open deal are skipped too (same as the daily sender), so they're added to the "meeting" skip set.
+    const meeting = new Set([...(meets || []), ...(deals || [])].map((m) => String(m.lead_id)));
     const never = new Set((unsubs || []).map((u) => u.email.toLowerCase()));
     const byEmail = new Map();
     rows.forEach((r) => { const e = r.email.toLowerCase(); (byEmail.get(e) || byEmail.set(e, []).get(e)).push(r); });
@@ -518,6 +520,8 @@
           due: last ? last + WEEK_MS : now, last, week: sentRows.length + 1, site: !noSite(l.website),
           from: sentRows.length ? senderOf(sentRows[0]) : "" };
       }).filter(Boolean)
+      // Two leads with the same address are one contact: one email.
+      .filter((r, i, all) => all.findIndex((x) => x.email.toLowerCase() === r.email.toLowerCase()) === i)
       // Same order as the sender (2026-11-09 weekly rule: everyone with an email gets one every week, website or not):
       // most overdue first (oldest last email), then never-emailed, then no-website before website.
       .sort((a, b) => (!a.last - !b.last) || ((a.last || 0) - (b.last || 0)) || (a.site - b.site));
