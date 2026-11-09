@@ -654,6 +654,7 @@
         <div class="stat"><span>Total emails sent</span><b>${sent.length}</b><span>to ${people} contacts</span></div>
         <div class="stat"><span>Not emailed yet</span><b>${notYet.length}</b><span>${notYetA} no website · ${notYet.length - notYetA} with website</span></div>
         <div class="stat"><span>Sent in the last 7 days</span><b>${sentWeek}</b><span>one per contact per week</span></div>
+        <div class="stat"><span>Not emailed yet this week</span><b>${dueA.length + dueW.length}</b><span>${dueA.length} no website · ${dueW.length} with website</span></div>
         <div class="stat"><span>Past a week without an email</span><b>${lateN}</b><span>${lateN ? "go first in the next run" : "everyone is on schedule"}</span></div>
         <div class="stat"><span>Guessed emails waiting</span><b>${guessed.length}</b><span>Hunter check on the 13th</span></div>
       </section>
