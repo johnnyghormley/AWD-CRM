@@ -518,8 +518,9 @@
           due: last ? last + WEEK_MS : now, last, week: sentRows.length + 1, site: !noSite(l.website),
           from: sentRows.length ? senderOf(sentRows[0]) : "" };
       }).filter(Boolean)
-      // Same order as the sender (2026-11-05): no-website contacts first, website contacts only after them; then never-emailed, then oldest.
-      .sort((a, b) => (a.site - b.site) || ((a.last || 0) - (b.last || 0)));
+      // Same order as the sender (2026-11-09 weekly rule: everyone with an email gets one every week, website or not):
+      // most overdue first (oldest last email), then never-emailed, then no-website before website.
+      .sort((a, b) => (!a.last - !b.last) || ((a.last || 0) - (b.last || 0)) || (a.site - b.site));
     const guessed = open.filter((l) => l.owner_email_status === "Inferred")
       .map((l) => ({ lead_id: l.id, email: l.owner_email.trim(), company: l.business_name, firstname: (l.owner_name || "").split("(")[0].trim(), lastname: "", week: 1 }));
     return { queue, guessed };
@@ -609,6 +610,9 @@
     const weekAgo = Date.now() - WEEK_MS, sentWeek = sent.filter((r) => Date.parse(r.sent_at) >= weekAgo).length;
     const replied = rows.filter((r) => r.replied_at), stopped = rows.filter((r) => r.unsubscribed_at), bounced = rows.filter((r) => r.bounced_at);
     const from = senderOf;
+    // Weekly rule (2026-11-09): a contact is "late" when its last email was more than 7 days ago (its due day has passed).
+    const late = (r) => r.last && r.due < new Date().setHours(0, 0, 0, 0);
+    const lateN = next.filter(late).length;
     const who = (r) => `${esc(name(r))}<div class="muted small">${r.lead_id ? `<a href="#/lead/${esc(r.lead_id)}">${esc(r.company || "lead")}</a>` : esc(r.company || "")}</div>`;
     const state = (r) => r.unsubscribed_at ? `<span class="pill st-disqualified">Said stop</span>` : r.bounced_at ? `<span class="pill st-donotcall">Bounced</span>`
       : r.replied_at ? `<span class="pill st-won">Replied</span>` : `<span class="pill cm-rs-sent">Sent</span>`;
@@ -626,11 +630,11 @@
     const PANELS = {
       guessed: ["Guessed emails waiting for a Hunter check", "Guessed emails pile up here and are checked with Hunter.io once a month, on the 13th (when the free credits reset): valid ones join the queue, bad ones are removed, unsure ones are never sent.",
         queueTable(guessed, "No guessed emails waiting.", () => "Monthly Hunter check (13th)")],
-      a: ["① No website: sent first", "Every due contact without a website goes out before any website contact.",
-        queueTable(dueA, "Everyone without a website already got this week's email.", (r, i) => (i < room ? "Next send (weekday 8:30 AM)" : "Over today's limit: next weekday"))],
-      w: ["② Has a website: only after ①", wOn ? "Gets the website version (W) with whatever room is left once every no-website contact has had this week's email."
-          : "On hold: the website version (W) needs your OK first. After that, these fill any room left once ① is done.",
-        queueTable(dueW, "No website contacts due.", (r, i) => (!wOn ? "On hold (approve version W)" : dueA.length + i < room ? "After ① (room today)" : "After ①, next weekday"))],
+      a: ["① No website: due this week", "Gets the no-website version (A). Every contact is due once every 7 days.",
+        queueTable(dueA, "Everyone without a website already got this week's email.", (r) => (late(r) ? "Past its week: goes first" : "Next send (weekday 8:30 AM)"))],
+      w: ["② Has a website: due this week", wOn ? "Gets the website version (W). Website contacts are due every week too, same as ①."
+          : "On hold: the website version (W) needs your OK first.",
+        queueTable(dueW, "No website contacts due.", (r) => (!wOn ? "On hold (approve version W)" : late(r) ? "Past its week: goes first" : "Next send (weekday 8:30 AM)"))],
       today: ["Today's sends", `${todayLine}. Room left today: ${room}.`, sentTable(sentToday, "Nothing sent yet today. Sends go out weekdays at 8:30 AM.")],
       sent: ["Every contact emailed", `${sent.length} emails to ${people} contacts, newest first.`, sentTable(sent, "Nothing sent yet.")],
       waiting: ["Waiting a week", "Already emailed this week. Each comes back into the queue 7 days after its last email.", queueTable(waiting, "Nobody waiting.", (r) => `Back in the queue ${day(r.due)}`)],
@@ -645,17 +649,18 @@
       <div class="page-head"><div><h2 class="h">${esc(c.name)}</h2><p class="muted small" style="margin:2px 0 0">Subject: ${esc(c.subject)}</p></div>
         <div class="page-tools"><a class="btn ghost" href="${B.base}/all">All campaigns</a></div></div>
       ${healthCards(sent)}
-      <p class="muted small tab-hint">Sent by Claude every weekday at 8:30 AM from Johnny's Gmail (15 a day), the AWD Gmail (15 a day), the AWD3 Gmail (15 a day) and Yahoo (15 a day). Every contact with an email gets one email a week, never more. Contacts without a website go first; website contacts only fill the room left after them. Skipped: Disqualified, Won, Not Interested and booked meetings. Click any step to see its contacts.</p>
+      <p class="muted small tab-hint">Sent by Claude every weekday at 8:30 AM from Johnny's Gmail (15 a day), the AWD Gmail (15 a day), the AWD3 Gmail (15 a day) and Yahoo (15 a day). Every contact with an email gets exactly one email every week (7 days apart, never two in a week): version A if they have no website, version W if they do. Skipped: Disqualified, Won, Not Interested, open deals and booked meetings. Click any step to see its contacts.</p>
       <section class="stats">
         <div class="stat"><span>Total emails sent</span><b>${sent.length}</b><span>to ${people} contacts</span></div>
         <div class="stat"><span>Not emailed yet</span><b>${notYet.length}</b><span>${notYetA} no website · ${notYet.length - notYetA} with website</span></div>
         <div class="stat"><span>Sent in the last 7 days</span><b>${sentWeek}</b><span>one per contact per week</span></div>
+        <div class="stat"><span>Past a week without an email</span><b>${lateN}</b><span>${lateN ? "go first in the next run" : "everyone is on schedule"}</span></div>
         <div class="stat"><span>Guessed emails waiting</span><b>${guessed.length}</b><span>Hunter check on the 13th</span></div>
       </section>
       <section class="card wf">
         <div class="wf-flow">
           <div class="wf-col">${node("guessed", "🔎", "Hunter check", guessed.length, "guessed emails waiting")}</div>${arrow}
-          <div class="wf-col">${node("a", "①", "No website", dueA.length, "due now · sent first", "wf-hot")}${node("w", "②", "Has website", dueW.length, wOn ? "due now · after ①" : "on hold: approve W", wOn ? "" : "wf-hold")}</div>${arrow}
+          <div class="wf-col">${node("a", "①", "No website", dueA.length, "due this week", "wf-hot")}${node("w", "②", "Has website", dueW.length, wOn ? "due this week" : "on hold: approve W", wOn ? "" : "wf-hold")}</div>${arrow}
           <div class="wf-col">${node("today", "📤", "Today's sends", sentToday.length, todayLine)}</div>${arrow}
           <div class="wf-col">${node("sent", "✉️", "Emailed", people, `${sent.length} emails total`)}${node("waiting", "⏳", "Waiting a week", waiting.length, "back in 7 days")}</div>${arrow}
           <div class="wf-col">${node("replied", "💬", "Replied", replied.length, "", "wf-good")}${node("stopped", "✋", "Said stop", stopped.length)}${node("bounced", "⚠️", "Bounced", bounced.length)}</div>
