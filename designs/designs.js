@@ -277,7 +277,15 @@
 
   // ---------- start ----------
   async function start() {
-    if (!(await session())) return showLogin();
+    const s = await session();
+    if (!s) return showLogin();
+    // Designs is admin-only (roles.sql, 2026-11-08). Before roles.sql runs there's no crm_users table: allow as before.
+    const { data: me, error: re } = await sb.from("crm_users").select("role").eq("user_id", s.user.id).maybeSingle();
+    if (re ? !/crm_users|PGRST205|42P01/.test((re.code || "") + re.message) : !(me && me.role === "admin")) {
+      $("login").hidden = true; $("topActions").hidden = false; $("main").hidden = false;
+      $("main").innerHTML = '<p style="padding:24px">Designs is for admins only.</p>';
+      return;
+    }
     $("login").hidden = true; $("main").hidden = false; $("topActions").hidden = false;
     renderAll(); load();
   }

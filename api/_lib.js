@@ -41,6 +41,17 @@ async function requireUser(req, res) {
   return null;
 }
 
+// The caller must be a CRM admin (Campaigns-Me / Campaigns-Dad are admin-only; roles.sql). Returns the token or null.
+async function requireAdmin(req, res) {
+  const token = await requireUser(req, res);
+  if (!token) return null;
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/is_crm_admin`, { method: "POST", headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: "{}" });
+  // Before roles.sql runs the function doesn't exist (404): everyone signed in is treated as before.
+  if (r.status === 404 || (r.ok && (await r.json()) === true)) return token;
+  send(res, 403, { error: "Campaigns are for admins only." });
+  return null;
+}
+
 // Supabase REST call. `token` = the signed-in user's session (row rules apply), or null for the public key.
 async function db(token, path, { method = "GET", body, prefer } = {}) {
   const headers = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${token || SUPABASE_ANON_KEY}`, "Content-Type": "application/json" };
@@ -74,4 +85,4 @@ async function readJson(req) {
 
 const origin = (req) => `${req.headers["x-forwarded-proto"] || "https"}://${req.headers["x-forwarded-host"] || req.headers.host}`;
 
-module.exports = { env, settings, brandOf, send, requireUser, db, hubspot, readJson, origin, SUPABASE_URL, SUPABASE_ANON_KEY };
+module.exports = { env, settings, brandOf, send, requireUser, requireAdmin, db, hubspot, readJson, origin, SUPABASE_URL, SUPABASE_ANON_KEY };

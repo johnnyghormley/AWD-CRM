@@ -3,7 +3,7 @@
 //   GET  /api/hubspot?action=options  → Lead Status choices
 //   GET  /api/hubspot?action=lists    → contact lists
 //   POST /api/hubspot?action=contacts → contacts with an email address, by filters or by list
-const { settings, send, requireUser, hubspot, readJson } = require("./_lib");
+const { settings, send, requireAdmin, hubspot, readJson } = require("./_lib");
 
 const PROPS = ["email", "firstname", "lastname", "company", "city", "jobtitle", "industry", "hs_lead_status"];
 const MAX = 1000;
@@ -46,7 +46,7 @@ async function byList(listId) {
 }
 
 module.exports = async (req, res) => {
-  if (!(await requireUser(req, res))) return;
+  if (!(await requireAdmin(req, res))) return;
   const action = (req.query && req.query.action) || new URL(req.url, "http://x").searchParams.get("action");
   try {
     if (action === "config") {

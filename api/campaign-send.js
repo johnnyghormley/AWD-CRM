@@ -7,7 +7,7 @@
 // - Campaigns-Me drips: once an email's delay has passed since the previous one, the next email is queued for that
 //   person, unless they replied, unsubscribed, bounced, or their lead is Won / Not Interested / Do Not Call / Disqualified.
 // - Nothing is sent unless CAMPAIGNS_LIVE=true (Campaigns-Dad) / AWD_CAMPAIGNS_LIVE=true (Campaigns-Me) in Vercel.
-const { settings, send, requireUser, db, hubspot, readJson, origin, env } = require("./_lib");
+const { settings, send, requireAdmin, db, hubspot, readJson, origin, env } = require("./_lib");
 const { render } = require("../campaign-render.js");
 
 const PER_CALL = 5;
@@ -95,7 +95,7 @@ async function logToHubspot(row, mail, at) {
 
 module.exports = async (req, res) => {
   if (req.method !== "POST") return send(res, 405, { error: "POST only" });
-  const token = await requireUser(req, res);
+  const token = await requireAdmin(req, res);
   if (!token) return;
   try {
     const { campaign_id, dry_run } = await readJson(req);

@@ -7,7 +7,13 @@
     app.innerHTML = `<div class="card pad narrow"><h2>Almost ready</h2><p>Add your Supabase project URL and anon key to <code>config.js</code>.</p></div>`;
     return;
   }
+  // Invite / password-reset links land here as #access_token=...&type=invite|recovery (or #error=...). Read it before
+  // Supabase clears the address bar, so the person gets the "set your password" screen.
+  const AUTH_HASH = new URLSearchParams(location.hash.replace(/^#/, ""));
+  let authLink = /^(invite|recovery)$/.test(AUTH_HASH.get("type") || "") ? AUTH_HASH.get("type") : null;
+  const authLinkError = AUTH_HASH.get("error_description");
   const sb = supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
+  sb.auth.onAuthStateChange((ev) => { if (ev === "PASSWORD_RECOVERY") authLink = "recovery"; });
 
   const CALL_STATUSES = ["New", "Called", "Callback", "Design Sent", "Follow Up", "Won", "Not Interested", "Do Not Call", "Disqualified"];
   const LEAD_STATUSES = ["Qualified", "Missing Info"];
@@ -91,6 +97,44 @@
   // ---------- auth ----------
   async function session() { return (await sb.auth.getSession()).data.session; }
 
+  // ---------- roles (2026-11-08): admin (Johnathon) vs employee ----------
+  // Employees can't see Campaigns-Me, Campaigns-Dad, Designs or Team. The database blocks those tables for them too (roles.sql).
+  const ADMIN_ROUTE = /^\/(campaigns(-me)?(\/|$)|designs$|team$)/;
+  let role = null, roleFor = null;
+  async function loadRole(s) {
+    if (roleFor === s.user.id && role) return role;
+    const { data, error } = await sb.from("crm_users").select("role").eq("user_id", s.user.id).maybeSingle();
+    // Before roles.sql is run there's no crm_users table; then everyone signed in is still treated as before (admin).
+    if (error) role = /crm_users|PGRST205|42P01/.test((error.code || "") + error.message) ? "admin" : "employee";
+    else role = data && data.role === "admin" ? "admin" : "employee";
+    roleFor = s.user.id;
+    nav.querySelectorAll("[data-admin]").forEach((a) => (a.hidden = role !== "admin"));
+    return role;
+  }
+  const isAdmin = () => role === "admin";
+
+  // "Set your password" for an invited employee (or after "Forgot password?").
+  function setPasswordView() {
+    nav.hidden = true;
+    app.innerHTML = `
+      <form class="card pad narrow" id="setpw">
+        <h2>${authLink === "invite" ? "Welcome to the AWD CRM" : "Set a new password"}</h2>
+        <p class="muted small">Choose a password for your login. At least 8 characters.</p>
+        <label>New password<input name="p1" type="password" required minlength="8" autocomplete="new-password"></label>
+        <label>Type it again<input name="p2" type="password" required minlength="8" autocomplete="new-password"></label>
+        <button class="btn">Save password</button>
+      </form>`;
+    document.getElementById("setpw").onsubmit = async (e) => {
+      e.preventDefault();
+      const f = new FormData(e.target);
+      if (f.get("p1") !== f.get("p2")) return toast("The two passwords don't match", true);
+      const { error } = await sb.auth.updateUser({ password: f.get("p1") });
+      if (error) return toast(error.message, true);
+      authLink = null; toast("Password saved");
+      location.hash = "#/"; route();
+    };
+  }
+
   function loginView() {
     nav.hidden = true;
     app.innerHTML = `
@@ -99,7 +143,16 @@
         <label>Email<input name="email" type="email" required autocomplete="username"></label>
         <label>Password<input name="password" type="password" required autocomplete="current-password"></label>
         <button class="btn">Sign in</button>
+        <button type="button" class="linkbtn" id="forgot">Forgot password?</button>
+        ${authLinkError ? `<p class="muted small">That link didn't work (${esc(authLinkError)}). Ask Johnathon for a new invite, or use Forgot password.</p>` : ""}
       </form>`;
+    document.getElementById("forgot").onclick = async () => {
+      const email = document.querySelector('#login [name="email"]').value.trim();
+      if (!email) return toast("Type your email first", true);
+      const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + "/" });
+      if (error) return toast(error.message, true);
+      toast("Check your email for a link to set a new password");
+    };
     document.getElementById("login").onsubmit = async (e) => {
       e.preventDefault();
       const f = new FormData(e.target);
@@ -108,7 +161,7 @@
       route();
     };
   }
-  document.getElementById("signout").onclick = async () => { await sb.auth.signOut(); location.hash = "#/"; loginView(); };
+  document.getElementById("signout").onclick = async () => { await sb.auth.signOut(); role = roleFor = null; location.hash = "#/"; loginView(); };
 
   // ---------- views ----------
   function leadRow(l) {
@@ -941,10 +994,10 @@
     const pastMeets = (meets || []).filter((m) => m.status !== "scheduled").slice(-3).reverse();
     // Dex requests for this business (the Designs app's queue), newest first, to show what's already asked for.
     const sameBusiness = l.business_name.replace(/[\\%_]/g, "\\$&"); // exact name, case-insensitive (ilike with wildcards escaped)
-    const { data: dexReqs } = await sb.from("design_requests").select("id, status, created_at").ilike("business", sameBusiness).order("created_at", { ascending: false });
+    const { data: dexReqs } = !isAdmin() ? { data: [] } : await sb.from("design_requests").select("id, status, created_at").ilike("business", sameBusiness).order("created_at", { ascending: false });
     const dexOpen = (dexReqs || []).find((r) => r.status !== "done"), dexDone = (dexReqs || []).find((r) => r.status === "done");
     // Designs Dex built for this business (the Designs tab), with a signed screenshot link when there is one.
-    const { data: builtRows } = await sb.from("designs").select("status, preview, live, thumb, created_at").ilike("business", sameBusiness).order("created_at", { ascending: false });
+    const { data: builtRows } = !isAdmin() ? { data: [] } : await sb.from("designs").select("status, preview, live, thumb, created_at").ilike("business", sameBusiness).order("created_at", { ascending: false });
     const built = builtRows || [];
     const thumbs = built.map((d) => d.thumb).filter(Boolean);
     const shotUrl = {};
@@ -1113,7 +1166,7 @@
         <p class="muted small">They pay on Stripe's secure page, by card (+3% fee) or from their bank account (no fee). You never see their card or bank details. Bank payments take a few business days to clear.</p>
       </section>` : ""}
 
-      <section class="card pad dex">
+      ${isAdmin() ? `<section class="card pad dex">
         <h3>🎨 Free design by Dex</h3>
         ${builtHtml}
         ${dexOpen
@@ -1121,7 +1174,7 @@
           : `${dexDone && !built.length ? `<p class="muted small">Dex already built one (requested ${fmtTime(dexDone.created_at)}). See <a href="#/designs">Designs</a>.</p>` : ""}
             <p class="muted small">Adds ${esc(l.business_name)} to Dex's queue with this lead's details. Dex never contacts the business.</p>
             <button type="button" class="btn" id="dex-btn">${dexDone || built.length ? "Have Dex build another design" : "Have Dex build a free design"}</button>`}
-      </section>
+      </section>` : ""}
       </aside>
       </div>`;
 
@@ -1404,11 +1457,38 @@ ${links()}`;
     };
   }
 
+  // ---------- Team (admins only): who can sign in, and admin vs employee ----------
+  async function teamView() {
+    const { data: users, error } = await sb.from("crm_users").select("*").order("created_at");
+    if (error) return fail(error);
+    const me = (await session()).user.id;
+    app.innerHTML = `
+      <div class="pad"><h2>Team</h2>
+      <p class="muted small tab-hint">Everyone who can sign in to the CRM. <b>Employees</b> see and work the leads (Today, Search, Inquired, every lead tab, Pipeline, Deals, Tasks, Calendar, Script, Add lead, Import) but not Campaigns-Me, Campaigns-Dad, Designs or this page; the database blocks those for them too.
+      To add someone, tell Claude “invite <i>their email</i> to the CRM” (runs <code>CRM App/sync/crm_invite.py</code>), or in Supabase go to Authentication → Users → Invite user. They get an email, click the link, and choose their own password. New logins start as Employee.</p>
+      <div class="card">${(users || []).map((u) => `
+        <div class="row"><div class="row-main"><b>${esc(u.email || u.user_id)}</b><span class="muted">Added ${fmtTime(u.created_at)}${u.user_id === me ? " · you" : ""}</span></div>
+        <div class="row-side"><select data-role="${u.user_id}" ${u.user_id === me ? "disabled" : ""}>
+          <option value="employee" ${u.role === "employee" ? "selected" : ""}>Employee</option>
+          <option value="admin" ${u.role === "admin" ? "selected" : ""}>Admin</option></select></div></div>`).join("") || `<p class="muted pad">No one yet.</p>`}
+      </div></div>`;
+    app.querySelectorAll("[data-role]").forEach((sel) => (sel.onchange = async () => {
+      const { error: e } = await sb.from("crm_users").update({ role: sel.value }).eq("user_id", sel.dataset.role);
+      if (e) return fail(e);
+      toast("Role saved");
+    }));
+  }
+
   // ---------- router ----------
   async function route() {
-    if (!(await session())) return loginView();
+    const s = await session();
+    if (!s) return loginView();
+    if (authLink) return setPasswordView();
+    await loadRole(s);
     nav.hidden = false;
-    const h = location.hash.replace(/^#/, "") || "/";
+    let h = location.hash.replace(/^#/, "") || "/";
+    if (/^(access_token|error)=/.test(h)) { history.replaceState(null, "", "#/"); h = "/"; }
+    if (ADMIN_ROUTE.test(h) && !isAdmin()) { toast("That page is for admins only", true); location.hash = "#/"; return; }
     nav.querySelectorAll("a").forEach((a) => a.classList.toggle("on", a.getAttribute("href") === "#" + h || (h.startsWith("/lead/") && a.getAttribute("href") === "#/leads") || (h.startsWith("/deals") && a.getAttribute("href") === "#/deals") || (h.startsWith("/campaigns/") && a.getAttribute("href") === "#/campaigns") || (h.startsWith("/campaigns-me/") && a.getAttribute("href") === "#/campaigns-me")));
     document.body.classList.toggle("full", h === "/designs");
     app.innerHTML = `<p class="muted pad">Loading…</p>`;
@@ -1425,6 +1505,7 @@ ${links()}`;
       else if (h === "/designs") designsView();
       else if (/^\/campaigns(-me)?(\/|$)/.test(h)) await window.AWDCampaigns.view(h, { sb, app, esc, toast, fail, fmtTime, session });
       else if (h === "/script") scriptView();
+      else if (h === "/team") await teamView();
       else if (h === "/search") await searchView();
       else if (h === "/leads") await leadsView();
       else if (h === "/new") newView();
