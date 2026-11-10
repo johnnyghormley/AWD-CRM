@@ -101,13 +101,51 @@
     </section>`;
   }
 
+  // Social posts from Buffer (social_posts, filled by CRM App/sync/social_sync.py). Metric names differ by network.
+  const NETS = [["linkedin", "LinkedIn"], ["facebook", "Facebook"], ["instagram", "Instagram"]];
+  const mv = (m, ...names) => { for (const n of names) if (m && m[n] != null) return Number(m[n]); return 0; };
+  const seen = (m) => mv(m, "Impressions", "Views");
+  function socialCard(posts, esc, missing) {
+    if (missing) return `<section class="card pad an-sec"><h3>📣 Social posts</h3><p class="muted small">One-time setup: run <code>social_posts.sql</code> in Supabase SQL Editor, then <code>python "CRM App/sync/social_sync.py"</code>.</p></section>`;
+    const rows = NETS.map(([k, label]) => {
+      const p = posts.filter((x) => x.channel === k);
+      const sum = (f) => p.reduce((t, x) => t + f(x.metrics), 0);
+      return [label, p.length, sum(seen), sum((m) => mv(m, "Reactions")), sum((m) => mv(m, "Comments", "Replies")), sum((m) => mv(m, "Shares")), sum((m) => mv(m, "Clicks"))];
+    });
+    const tot = rows.reduce((t, r) => t.map((v, i) => (i ? v + r[i] : v)), ["", 0, 0, 0, 0, 0, 0]);
+    const latest = posts.map((x) => x.metrics_updated_at).filter(Boolean).sort().pop();
+    const recent = posts.slice().sort((a, b) => (a.sent_at < b.sent_at ? 1 : -1)).slice(0, 15);
+    const net = Object.fromEntries(NETS);
+    return `<section class="card pad an-sec">
+      <div class="an-head"><h3>📣 Social posts: LinkedIn, Facebook, Instagram</h3><span class="muted small">From Buffer${latest ? ` · stats as of ${esc(new Date(latest).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }))}` : ""}</span></div>
+      <div class="stats">
+        <div class="stat"><span>Posts</span><b>${fmt(tot[1])}</b></div>
+        <div class="stat"><span>Times seen</span><b>${fmt(tot[2])}</b><div class="muted small">impressions / views</div></div>
+        <div class="stat"><span>Reactions</span><b>${fmt(tot[3])}</b></div>
+        <div class="stat"><span>Comments</span><b>${fmt(tot[4])}</b></div>
+        <div class="stat"><span>Shares</span><b>${fmt(tot[5])}</b></div>
+        <div class="stat"><span>Link clicks</span><b>${fmt(tot[6])}</b></div>
+      </div>
+      <table class="an-table" style="margin-top:12px"><thead><tr><th>Network</th><th class="num">Posts</th><th class="num">Times seen</th><th class="num">Reactions</th><th class="num">Comments</th><th class="num">Shares</th><th class="num">Clicks</th></tr></thead>
+        <tbody>${rows.map((r) => `<tr><td>${esc(r[0])}</td>${r.slice(1).map((v) => `<td class="num">${fmt(v)}</td>`).join("")}</tr>`).join("")}</tbody></table>
+      <details class="an-details"><summary class="small">Recent posts (${recent.length})</summary>
+        <table class="an-table"><thead><tr><th>Sent</th><th>Network</th><th>Post</th><th class="num">Seen</th><th class="num">Reactions</th><th class="num">Clicks</th></tr></thead><tbody>
+        ${recent.map((x) => `<tr><td class="num" style="text-align:left">${esc(shortDay(dayKey(x.sent_at)))}</td><td>${esc(net[x.channel] || x.channel)}</td>
+          <td>${x.link ? `<a href="${esc(x.link)}" target="_blank" rel="noopener">${esc((x.text || "").slice(0, 70))}…</a>` : esc((x.text || "").slice(0, 70))}</td>
+          <td class="num">${fmt(seen(x.metrics))}</td><td class="num">${fmt(mv(x.metrics, "Reactions"))}</td><td class="num">${fmt(mv(x.metrics, "Clicks"))}</td></tr>`).join("") || `<tr><td colspan="6" class="muted">No posts in this time range.</td></tr>`}</tbody></table></details>
+      <p class="muted small" style="margin-top:8px">Counts posts sent in the selected time range. Buffer refreshes post stats about once a day.</p>
+    </section>`;
+  }
+
   async function view({ sb, app, esc, toast, fail }) {
     const since = new Date(Date.now() - (days - 1) * 864e5); since.setHours(0, 0, 0, 0);
-    const [visitsRes, inqRes, chRes] = await Promise.all([
+    const [visitsRes, inqRes, chRes, socialRes] = await Promise.all([
       fetchAll(sb, "site_visits", "created_at, path, referrer, source, visitor_id, device, event", since.toISOString()),
       fetchAll(sb, "inquiries", "created_at, source", since.toISOString()),
-      sb.from("channel_stats").select("week_start, channel, metrics").order("week_start", { ascending: false }).limit(60)
+      sb.from("channel_stats").select("week_start, channel, metrics").order("week_start", { ascending: false }).limit(60),
+      sb.from("social_posts").select("id, channel, sent_at, text, link, metrics, metrics_updated_at").gte("sent_at", since.toISOString()).order("sent_at", { ascending: false }).limit(1000)
     ]);
+    const socialMissing = !!(socialRes.error && /social_posts|PGRST205|42P01/.test((socialRes.error.code || "") + (socialRes.error.message || "")));
     const missing = [visitsRes.error, chRes.error].some((e) => e && /site_visits|channel_stats|PGRST205|42P01/.test((e.code || "") + (e.message || "")));
     if (missing) {
       app.innerHTML = `<div class="page-head"><h2 class="h">Analytics</h2></div><section class="card pad"><h3>One-time setup</h3>
@@ -134,7 +172,7 @@
     app.innerHTML = `
       <div class="page-head"><h2 class="h">Analytics</h2>
         <div class="page-tools an-range" role="group" aria-label="Time range">${RANGES.map(([d, l]) => `<button type="button" class="btn ${d === days ? "" : "ghost"} small" data-days="${d}">${l}</button>`).join("")}</div></div>
-      <p class="muted small tab-hint">Website numbers fill in on their own (counting started 2026-11-10). Google profile and LinkedIn numbers are added once a week below. Admins only.</p>
+      <p class="muted small tab-hint">Website numbers fill in on their own (counting started 2026-11-10). Social post stats come from Buffer daily. Google profile and LinkedIn follower numbers are added once a week below. Admins only.</p>
 
       <section class="card pad an-sec">
         <div class="an-head"><h3>🌐 Website traffic</h3><a class="small" href="https://affordablewebdesigns.vercel.app" target="_blank" rel="noopener">affordablewebdesigns.vercel.app</a></div>
@@ -156,9 +194,11 @@
         <section class="card pad an-sec"><h3>Phone vs computer</h3>${shareRows(countBy(firsts, (v) => (v.device === "phone" ? "Phone or tablet" : "Computer")), firsts.length, esc)}</section>
       </div>
 
+      ${socialCard(socialRes.data || [], esc, socialMissing)}
+
       ${channelCard("google", "📍 Google Business Profile", GOOGLE, channels, esc,
         "Where to find them: search “Affordable Web Designs” on Google while signed in → Performance (or business.google.com → Performance). Pick the week, then copy each number.")}
-      ${channelCard("linkedin", "💼 LinkedIn page", LINKEDIN, channels, esc,
+      ${channelCard("linkedin", "💼 LinkedIn page: followers & visitors", LINKEDIN, channels, esc,
         "Where to find them: your LinkedIn company page → Analytics (Content, Visitors and Followers). Set the date range to the week, then copy each number.")}`;
 
     app.querySelectorAll("[data-days]").forEach((b) => (b.onclick = () => { days = +b.dataset.days; view({ sb, app, esc, toast, fail }); }));
