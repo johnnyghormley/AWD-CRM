@@ -206,6 +206,7 @@
   // Disqualified = not a fit. A lead that asked not to be called again is disqualified automatically
   // (logging the outcome "Asked not to call" or the status "Do Not Call" sets it to Disqualified).
   const isDq = (l) => l.call_status === "Disqualified" || l.call_status === "Do Not Call";
+  const foldOpen = (k) => { try { return localStorage.getItem("awd_fold_" + k) !== "0"; } catch { return true; } };
   // Follow-up due = follow-up date is today or earlier (local date) on a lead that's still open, same rule as Today's
   // "Due today or overdue". Overdue ones stay until you log the call with a new date or status; closed and
   // disqualified leads never show.
@@ -322,12 +323,16 @@
         <h3 class="sub-h">Called <span class="muted">(${rows.filter((l) => !isFollow(l)).length})</span></h3>
         ${tabList(rows.filter((l) => !isFollow(l)), "called", "Nothing here yet.")}`
       : tab === "ready" ? `
-        <h3 class="sub-h">Follow-ups due today <span class="muted">(${rows.filter(isDue).length})</span></h3>
-        ${tabList(rows.filter(isDue), "ready-due", "No follow-ups due today.")}
+        <details class="fold" data-fold="ready-due" ${foldOpen("ready-due") ? "open" : ""}>
+          <summary><h3 class="sub-h">Follow-ups due today <span class="muted">(${rows.filter(isDue).length})</span></h3></summary>
+          ${tabList(rows.filter(isDue), "ready-due", "No follow-ups due today.")}
+        </details>
         <h3 class="sub-h">Not called yet <span class="muted">(${rows.filter((l) => !isDue(l)).length})</span></h3>
         ${tabList(rows.filter((l) => !isDue(l)), "ready", "Nothing here yet.")}`
       : tabList(rows, tab, tab === "disqualified" ? "No disqualified leads. Use 🚫 Disqualify on a lead's page." : "Nothing here yet.")}`;
     el.querySelectorAll(".trow").forEach((r) => r.addEventListener("click", (e) => { if (!e.target.closest("a, label, input, button")) location.hash = r.dataset.href; }));
+    // Collapsible sections (Ready tab's "Follow-ups due today", 2026-11-10): open or closed is remembered in this browser.
+    el.querySelectorAll("details.fold").forEach((d) => d.addEventListener("toggle", () => { try { localStorage.setItem("awd_fold_" + d.dataset.fold, d.open ? "1" : "0"); } catch {} }));
     el.querySelectorAll("[data-restore]").forEach((b) => b.onclick = async () => {
       const l = leads.find((x) => String(x.id) === b.dataset.restore);
       b.disabled = true;
