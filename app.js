@@ -99,7 +99,7 @@
 
   // ---------- roles (2026-11-08): admin (Johnathon) vs employee ----------
   // Employees can't see Campaigns-Me, Campaigns-Dad, Designs, Deals, Pipeline or Team. The database blocks those tables for them too (roles.sql).
-  const ADMIN_ROUTE = /^\/(campaigns(-me)?(\/|$)|designs$|deals(\/|$)|pipeline$|team$)/;
+  const ADMIN_ROUTE = /^\/(campaigns(-me)?(\/|$)|designs$|deals(\/|$)|pipeline$|team$|analytics$)/;
   let role = null, roleFor = null;
   async function loadRole(s) {
     if (roleFor === s.user.id && role) return role;
@@ -1501,6 +1501,7 @@ ${links()}`;
       else if (["/ready", "/missing", "/onlyemail", "/called", "/disqualified"].includes(h)) await tabView(h.slice(1));
       else if (h === "/calendar") await calendarView();
       else if (h === "/pipeline") await pipelineView();
+      else if (h === "/analytics") await window.AWDAnalytics.view({ sb, app, esc, toast, fail });
       else if (h === "/deals" || h.startsWith("/deals/new/")) await dealsView(h.startsWith("/deals/new/") ? h.slice(11) : null);
       else if (h === "/tasks") await tasksView();
       else if (h === "/designs") designsView();
