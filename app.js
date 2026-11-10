@@ -994,7 +994,8 @@
     const pastMeets = (meets || []).filter((m) => m.status !== "scheduled").slice(-3).reverse();
     // Dex requests for this business (the Designs app's queue), newest first, to show what's already asked for.
     const sameBusiness = l.business_name.replace(/[\\%_]/g, "\\$&"); // exact name, case-insensitive (ilike with wildcards escaped)
-    const { data: dexReqs } = !isAdmin() ? { data: [] } : await sb.from("design_requests").select("id, status, created_at").ilike("business", sameBusiness).order("created_at", { ascending: false });
+    // Employees can queue Dex and see the queue status too (2026-11-10), but not the built designs or the Designs tab.
+    const { data: dexReqs } = await sb.from("design_requests").select("id, status, created_at").ilike("business", sameBusiness).order("created_at", { ascending: false });
     const dexOpen = (dexReqs || []).find((r) => r.status !== "done"), dexDone = (dexReqs || []).find((r) => r.status === "done");
     // Designs Dex built for this business (the Designs tab), with a signed screenshot link when there is one.
     const { data: builtRows } = !isAdmin() ? { data: [] } : await sb.from("designs").select("status, preview, live, thumb, created_at").ilike("business", sameBusiness).order("created_at", { ascending: false });
@@ -1049,7 +1050,7 @@
           ${usable(l.owner_email) ? `<a href="mailto:${esc(l.owner_email)}"><i>✉️</i>Email</a>` : ""}
           ${phones.length ? `<a href="tel:${esc(tel(phones[0][0]))}"><i>📞</i>Call</a>` : ""}
           ${mErr ? "" : `<button type="button" data-quick="meet"><i>📅</i>Meeting</button>`}
-          ${isAdmin() ? `<button type="button" data-quick="dex"><i>🎨</i>Design</button>` : ""}
+          <button type="button" data-quick="dex"><i>🎨</i>Design</button>
           <button type="button" data-quick="edit"><i>✏️</i>Edit</button>
           ${isAdmin() ? `<a href="#/deals/new/${l.id}"><i>🤝</i>Deal</a>` : ""}
         </div>
@@ -1166,15 +1167,15 @@
         <p class="muted small">They pay on Stripe's secure page, by card (+3% fee) or from their bank account (no fee). You never see their card or bank details. Bank payments take a few business days to clear.</p>
       </section>` : ""}
 
-      ${isAdmin() ? `<section class="card pad dex">
+      <section class="card pad dex">
         <h3>🎨 Free design by Dex</h3>
         ${builtHtml}
         ${dexOpen
-          ? `<p><b>${dexOpen.status === "in_progress" ? "Dex is building it" : dexOpen.status === "build_requested" ? "Build requested" : dexOpen.status === "build_failed" ? "Build didn't finish" : "Queued for Dex"}</b> since ${fmtTime(dexOpen.created_at)}. Tell Claude “Dex, check the queue” to start it. Track it in <a href="#/designs">Designs</a>.</p>`
-          : `${dexDone && !built.length ? `<p class="muted small">Dex already built one (requested ${fmtTime(dexDone.created_at)}). See <a href="#/designs">Designs</a>.</p>` : ""}
+          ? `<p><b>${dexOpen.status === "in_progress" ? "Dex is building it" : dexOpen.status === "build_requested" ? "Build requested" : dexOpen.status === "build_failed" ? "Build didn't finish" : "Queued for Dex"}</b> since ${fmtTime(dexOpen.created_at)}.${isAdmin() ? ` Tell Claude “Dex, check the queue” to start it. Track it in <a href="#/designs">Designs</a>.` : ` Johnny will start it.`}</p>`
+          : `${dexDone && !built.length ? `<p class="muted small">Dex already built one (requested ${fmtTime(dexDone.created_at)}).${isAdmin() ? ` See <a href="#/designs">Designs</a>.` : ""}</p>` : ""}
             <p class="muted small">Adds ${esc(l.business_name)} to Dex's queue with this lead's details. Dex never contacts the business.</p>
             <button type="button" class="btn" id="dex-btn">${dexDone || built.length ? "Have Dex build another design" : "Have Dex build a free design"}</button>`}
-      </section>` : ""}
+      </section>
       </aside>
       </div>`;
 
@@ -1253,7 +1254,7 @@
       });
       if (e1) { dexBtn.disabled = false; return fail(e1); }
       await sb.from("activities").insert({ lead_id: id, kind: "Note", note: "Asked Dex to build a free design (queued in Designs)" });
-      toast("Queued for Dex. Tell Claude “Dex, check the queue”."); leadView(id);
+      toast(isAdmin() ? "Queued for Dex. Tell Claude “Dex, check the queue”." : "Queued for Dex. Johnny will see it."); leadView(id);
     };
 
     // New leads default to "Called" in the Log a call form, since logging a call is what moves them from Ready to Called.
