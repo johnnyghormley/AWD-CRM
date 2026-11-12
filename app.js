@@ -244,9 +244,15 @@
   const hasPhone = (l) => usable(l.owner_phone) || usable(l.business_phone);
   const isOnlyEmail = (l) => (movedToEmail(l) && !hasMeeting(l)) || (usable(l.owner_email) && ((!hasPhone(l) && l.call_status === "New") || (calledOut(l) && !hasMeeting(l))));
   const isFresh = (l) => l.lead_status !== "Missing Info" && l.call_status === "New" && !isOnlyEmail(l);
+  // Spanish-speaking leads (2026-11-12): Abby tags them "Language: Spanish" in Sources (crm_push.py adds it for rows
+  // from her Spanish CSVs). They're called by the bilingual employee, so they get their own tab and stay out of
+  // Ready and Missing info. Every other tab (Only email, Called, Disqualified, Leads) treats them like any lead.
+  const isSpanish = (l) => /\bLanguage:\s*Spanish\b/i.test(l.sources || "");
+  const readySpanish = (l) => isSpanish(l) && (isDue(l) || l.call_status === "New") && !hasMeeting(l) && !isOnlyEmail(l);
   const TABS = [
-    ["ready", "Ready", (l) => (isFresh(l) || isDue(l)) && !hasMeeting(l) && !isOnlyEmail(l), "Follow-ups due today (and overdue ones), then qualified leads not called yet. Leads with a meeting booked, or called 3 times and reachable by email, aren't listed here."],
-    ["missing", "Missing info", (l) => l.lead_status === "Missing Info" && l.call_status === "New" && !isOnlyEmail(l), "Not called yet, still missing some info (for example, only the company's phone, no owner phone)."],
+    ["ready", "Ready", (l) => !isSpanish(l) && (isFresh(l) || isDue(l)) && !hasMeeting(l) && !isOnlyEmail(l), "Follow-ups due today (and overdue ones), then qualified leads not called yet. Leads with a meeting booked, or called 3 times and reachable by email, aren't listed here."],
+    ["spanish", "Ready Spanish speaking", readySpanish, "Spanish-speaking leads for the bilingual caller: follow-ups due today (and overdue ones), then leads not called yet (an amber Missing tag means only the company's phone was found). Leads with a meeting booked, or called 3 times and reachable by email, aren't listed here."],
+    ["missing", "Missing info", (l) => !isSpanish(l) && l.lead_status === "Missing Info" && l.call_status === "New" && !isOnlyEmail(l), "Not called yet, still missing some info (for example, only the company's phone, no owner phone)."],
     ["onlyemail", "Only email", isOnlyEmail, "Leads with an email but no phone number, plus leads called 3 times that have an email, plus leads you moved here with Move to email list. They get the weekly Gmail email (Campaigns-Me) instead of calls. Ones with no email yet wait here while Claude looks for one."],
     ["called", "Called", (l) => l.call_status !== "New" && !isDq(l), "Everyone you've called. Check Follow up to move a lead into the Follow up list."],
     ["disqualified", "Disqualified", isDq, "Leads that aren't a fit. They're kept out of every other list. Tap Restore to put one back in Ready."]
@@ -322,13 +328,13 @@
         ${tabList(rows.filter(isFollow), "called", "No follow-ups.")}
         <h3 class="sub-h">Called <span class="muted">(${rows.filter((l) => !isFollow(l)).length})</span></h3>
         ${tabList(rows.filter((l) => !isFollow(l)), "called", "Nothing here yet.")}`
-      : tab === "ready" ? `
-        <details class="fold" data-fold="ready-due" ${foldOpen("ready-due") ? "open" : ""}>
+      : tab === "ready" || tab === "spanish" ? `
+        <details class="fold" data-fold="${tab}-due" ${foldOpen(tab + "-due") ? "open" : ""}>
           <summary><h3 class="sub-h">Follow-ups due today <span class="muted">(${rows.filter(isDue).length})</span></h3></summary>
           ${tabList(rows.filter(isDue), "ready-due", "No follow-ups due today.")}
         </details>
         <h3 class="sub-h">Not called yet <span class="muted">(${rows.filter((l) => !isDue(l)).length})</span></h3>
-        ${tabList(rows.filter((l) => !isDue(l)), "ready", "Nothing here yet.")}`
+        ${tabList(rows.filter((l) => !isDue(l)), "ready", tab === "spanish" ? "No Spanish-speaking leads yet. Abby adds them every night." : "Nothing here yet.")}`
       : tabList(rows, tab, tab === "disqualified" ? "No disqualified leads. Use 🚫 Disqualify on a lead's page." : "Nothing here yet.")}`;
     el.querySelectorAll(".trow").forEach((r) => r.addEventListener("click", (e) => { if (!e.target.closest("a, label, input, button")) location.hash = r.dataset.href; }));
     // Collapsible sections (Ready tab's "Follow-ups due today", 2026-11-10): open or closed is remembered in this browser.
@@ -1503,7 +1509,7 @@ ${links()}`;
     try {
       if (h === "/") await todayView();
       else if (h === "/inquired") await inquiredView();
-      else if (["/ready", "/missing", "/onlyemail", "/called", "/disqualified"].includes(h)) await tabView(h.slice(1));
+      else if (["/ready", "/spanish", "/missing", "/onlyemail", "/called", "/disqualified"].includes(h)) await tabView(h.slice(1));
       else if (h === "/calendar") await calendarView();
       else if (h === "/pipeline") await pipelineView();
       else if (h === "/analytics") await window.AWDAnalytics.view({ sb, app, esc, toast, fail });
