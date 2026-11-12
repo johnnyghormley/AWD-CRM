@@ -14,7 +14,7 @@
     { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ],
   "shortcuts": [
-    { "name": "Ready", "url": "/#/ready", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "English Ready", "url": "/#/ready", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
     { "name": "Called", "url": "/#/called", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] }
   ]
 }

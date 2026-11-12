@@ -250,12 +250,12 @@
   const isSpanish = (l) => /\bLanguage:\s*Spanish\b/i.test(l.sources || "");
   const readySpanish = (l) => isSpanish(l) && (isDue(l) || l.call_status === "New") && !hasMeeting(l) && !isOnlyEmail(l);
   const TABS = [
-    ["ready", "Ready", (l) => !isSpanish(l) && (isFresh(l) || isDue(l)) && !hasMeeting(l) && !isOnlyEmail(l), "Follow-ups due today (and overdue ones), then qualified leads not called yet. Leads with a meeting booked, or called 3 times and reachable by email, aren't listed here."],
+    ["ready", "English Ready", (l) => !isSpanish(l) && (isFresh(l) || isDue(l)) && !hasMeeting(l) && !isOnlyEmail(l), "Follow-ups due today (and overdue ones), then qualified leads not called yet. Leads with a meeting booked, or called 3 times and reachable by email, aren't listed here."],
     ["spanish", "Ready Spanish speaking", readySpanish, "Spanish-speaking leads for the bilingual caller: follow-ups due today (and overdue ones), then leads not called yet (an amber Missing tag means only the company's phone was found). Leads with a meeting booked, or called 3 times and reachable by email, aren't listed here."],
     ["missing", "Missing info", (l) => !isSpanish(l) && l.lead_status === "Missing Info" && l.call_status === "New" && !isOnlyEmail(l), "Not called yet, still missing some info (for example, only the company's phone, no owner phone)."],
     ["onlyemail", "Only email", isOnlyEmail, "Leads with an email but no phone number, plus leads called 3 times that have an email, plus leads you moved here with Move to email list. They get the weekly Gmail email (Campaigns-Me) instead of calls. Ones with no email yet wait here while Claude looks for one."],
     ["called", "Called", (l) => l.call_status !== "New" && !isDq(l), "Everyone you've called. Check Follow up to move a lead into the Follow up list."],
-    ["disqualified", "Disqualified", isDq, "Leads that aren't a fit. They're kept out of every other list. Tap Restore to put one back in Ready."]
+    ["disqualified", "Disqualified", isDq, "Leads that aren't a fit. They're kept out of every other list. Tap Restore to put one back in English Ready (or Ready Spanish speaking)."]
   ];
 
   // Show each tab's count next to its link in the top bar.
@@ -1342,7 +1342,7 @@
           const { error: e1 } = await sb.from("leads").update({ owner_email: typed, owner_email_status: "Verified" }).eq("id", id);
           if (e1) return fail(e1);
         }
-        const lines = ["Couldn't get through by phone: moved to the email list (off the Ready tab)."];
+        const lines = ["Couldn't get through by phone: moved to the email list (off the Ready tabs)."];
         if (typed) lines.push(`Email: ${typed}`);
         else if (!hasEmail) lines.push("No email yet: Claude looks for one on the next daily email run.");
         if (usable(l.website)) lines.push("Has a website, so the weekly no-website email skips it.");
