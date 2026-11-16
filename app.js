@@ -1362,7 +1362,7 @@
       const src = l.sources || "";
       const next = toSpanish
         ? "Language: Spanish; Spanish evidence: marked Spanish-speaking by hand in the CRM" + (src.trim() ? "; " + src : "")
-        : src.replace(/Language:\s*Spanish/gi, "Language: English (was marked Spanish, switched by hand in the CRM)");
+        : src.replace(/\bLanguage:\s*Spanish\b/gi, "Language: English (was marked Spanish, switched by hand in the CRM)");
       langBtn.disabled = true;
       const { error: e4 } = await sb.from("leads").update({ sources: next }).eq("id", id);
       if (e4) { langBtn.disabled = false; return fail(e4); }
