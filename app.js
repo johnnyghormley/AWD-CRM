@@ -469,20 +469,15 @@
     if (window.AbbyRunner) AbbyRunner.start(leads);
   }
 
-  // ---------- Calendar: follow-ups (open leads' follow_up_date) + booked meetings, month grid + upcoming list ----------
+  // ---------- Calendar: booked meetings, month grid + upcoming list ----------
+  // Follow-ups were taken off the calendar (2026-11-16, Johnathon); they have their own Follow-ups tab.
   let calMonth = null; // "YYYY-MM" being shown
   async function calendarView() {
-    const [{ data: leads, error }, { data: meets, error: mErr }] = await Promise.all([
-      sb.from("leads").select("id,business_name,owner_name,call_status,follow_up_date,next_step").not("follow_up_date", "is", null),
-      sb.from("meetings").select("*, leads(business_name, owner_name)").neq("status", "canceled").order("starts_at", { ascending: true })
-    ]);
-    if (error) return fail(error);
+    const { data: meets, error: mErr } = await sb.from("meetings").select("*, leads(business_name, owner_name)").neq("status", "canceled").order("starts_at", { ascending: true });
     const t = today();
     if (!calMonth) calMonth = t.slice(0, 7);
     // events by day: { day: "YYYY-MM-DD", type: "meet"|"fu", ... }
     const events = [];
-    (leads || []).filter((l) => !CLOSED.includes(l.call_status)).forEach((l) => events.push({ day: l.follow_up_date, type: "fu", lead: l.id, name: l.business_name,
-      sub: [l.call_status, l.next_step].filter(usable).join(" · "), late: l.follow_up_date < t, sort: "" }));
     (meets || []).forEach((m) => events.push({ day: localDay(m.starts_at), type: "meet", lead: m.lead_id, name: (m.leads && m.leads.business_name) || "Lead",
       time: new Date(m.starts_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }), kind: m.kind, done: m.status === "done",
       sub: [m.kind, `${m.duration_min} min`, m.location].filter(Boolean).join(" · "), sort: m.starts_at }));
@@ -513,8 +508,8 @@
           <b>${first.toLocaleDateString("en-US", { month: "long", year: "numeric" })}</b>
           <button class="btn ghost small" id="cal-next" aria-label="Next month">›</button>
           <button class="btn ghost small" id="cal-today">Today</button></div></div>
-      <p class="muted small cal-key"><span class="cal-ev meet">📅 Meeting</span> <span class="cal-ev fu">↻ Follow-up</span> <span class="cal-ev fu late">Overdue</span> · Book meetings from a lead's page.</p>
-      ${mErr ? `<p class="pill warn">Meetings aren't set up yet (run meetings.sql). Showing follow-ups only.</p>` : ""}
+      <p class="muted small cal-key"><span class="cal-ev meet">📅 Meeting</span> · Book meetings from a lead's page. Follow-ups are on the Follow-ups tab.</p>
+      ${mErr ? `<p class="pill warn">Meetings aren't set up yet (run meetings.sql).</p>` : ""}
       <section class="card cal">
         ${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => `<div class="cal-dow">${d}</div>`).join("")}
         ${cells}
