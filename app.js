@@ -1083,6 +1083,7 @@
             <button type="button" class="btn ghost" id="to-email-cancel">Cancel</button>
           </form>`}
           ${usable(l.website) ? `<a class="btn ghost" target="_blank" rel="noopener" href="${esc(/^https?:/i.test(l.website) ? l.website : "https://" + l.website)}">🌐 Website</a>` : ""}
+          <button type="button" class="btn ghost" id="lang-btn" title="${isSpanish(l) ? "This lead is on the Spanish list" : "This lead is on the English list"}">${isSpanish(l) ? "🇺🇸 Move to English list" : "🇲🇽 Move to Spanish list"}</button>
           ${l.call_status === "Disqualified"
             ? `<button type="button" class="btn ghost" id="requal-btn">↩ Restore lead</button>`
             : `<button type="button" class="btn ghost" id="dq-btn">🚫 Disqualify</button>
@@ -1352,6 +1353,22 @@
         toast(`${l.business_name} moved to the email list`); leadView(id);
       };
     }
+    // Switch a lead between the English and Spanish lists by hand (2026-11-16). The lists are split by the
+    // "Language: Spanish" tag in Sources (see isSpanish), so this adds or removes that tag and logs a note.
+    const langBtn = document.getElementById("lang-btn");
+    if (langBtn) langBtn.onclick = async () => {
+      const toSpanish = !isSpanish(l);
+      if (!confirm(toSpanish ? `Move ${l.business_name} to the Spanish list?` : `Move ${l.business_name} to the English list?`)) return;
+      const src = l.sources || "";
+      const next = toSpanish
+        ? "Language: Spanish; Spanish evidence: marked Spanish-speaking by hand in the CRM" + (src.trim() ? "; " + src : "")
+        : src.replace(/Language:\s*Spanish/gi, "Language: English (was marked Spanish, switched by hand in the CRM)");
+      langBtn.disabled = true;
+      const { error: e4 } = await sb.from("leads").update({ sources: next }).eq("id", id);
+      if (e4) { langBtn.disabled = false; return fail(e4); }
+      await sb.from("activities").insert({ lead_id: id, kind: "Note", note: toSpanish ? "Moved to the Spanish list (Spanish-speaking, for the bilingual caller)." : "Moved to the English list." });
+      toast(`${l.business_name} moved to the ${toSpanish ? "Spanish" : "English"} list`); leadView(id);
+    };
     const toCallsBtn = document.getElementById("to-calls-btn");
     if (toCallsBtn) toCallsBtn.onclick = async () => {
       const { error: e3 } = await sb.from("activities").insert({ lead_id: id, kind: "Note", outcome: TO_CALLS, note: "Moved back to the call list." });
