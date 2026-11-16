@@ -250,7 +250,9 @@
   const isSpanish = (l) => /\bLanguage:\s*Spanish\b/i.test(l.sources || "");
   const readySpanish = (l) => isSpanish(l) && (isDue(l) || l.call_status === "New") && !hasMeeting(l) && !isOnlyEmail(l);
   const TABS = [
-    ["ready", "English Ready", (l) => !isSpanish(l) && (isFresh(l) || isDue(l)) && !hasMeeting(l) && !isOnlyEmail(l), "Follow-ups due today (and overdue ones), then qualified leads not called yet. Leads with a meeting booked, or called 3 times and reachable by email, aren't listed here."],
+    // Follow-ups got their own tab (2026-11-16, Johnathon): English Ready now lists only leads not called yet.
+    ["ready", "English Ready", (l) => !isSpanish(l) && isFresh(l) && !isDue(l) && !hasMeeting(l) && !isOnlyEmail(l), "Qualified English leads not called yet. Follow-ups due are on the Follow-ups tab. Leads with a meeting booked aren't listed here."],
+    ["followups", "Follow-ups", (l) => !isSpanish(l) && isDue(l) && !hasMeeting(l) && !isOnlyEmail(l), "English leads with a follow-up due today, plus overdue ones. Spanish follow-ups stay on Spanish Ready. Leads with a meeting booked, or called 3 times and reachable by email, aren't listed here."],
     ["spanish", "Spanish Ready", readySpanish, "Spanish-speaking leads for the bilingual caller: follow-ups due today (and overdue ones), then leads not called yet (an amber Missing tag means only the company's phone was found). Leads with a meeting booked, or called 3 times and reachable by email, aren't listed here."],
     ["missing", "Missing info", (l) => !isSpanish(l) && l.lead_status === "Missing Info" && l.call_status === "New" && !isOnlyEmail(l), "Not called yet, still missing some info (for example, only the company's phone, no owner phone)."],
     ["onlyemail", "Only email", isOnlyEmail, "Leads with an email but no phone number, plus leads called 3 times that have an email, plus leads you moved here with Move to email list. They get the weekly Gmail email (Campaigns-Me) instead of calls. Ones with no email yet wait here while Claude looks for one."],
@@ -328,13 +330,15 @@
         ${tabList(rows.filter(isFollow), "called", "No follow-ups.")}
         <h3 class="sub-h">Called <span class="muted">(${rows.filter((l) => !isFollow(l)).length})</span></h3>
         ${tabList(rows.filter((l) => !isFollow(l)), "called", "Nothing here yet.")}`
-      : tab === "ready" || tab === "spanish" ? `
+      : tab === "followups" ? tabList(rows, "ready-due", "No follow-ups due today.")
+      : tab === "ready" ? tabList(rows, "ready", "Nothing here yet.")
+      : tab === "spanish" ? `
         <details class="fold" data-fold="${tab}-due" ${foldOpen(tab + "-due") ? "open" : ""}>
           <summary><h3 class="sub-h">Follow-ups due today <span class="muted">(${rows.filter(isDue).length})</span></h3></summary>
           ${tabList(rows.filter(isDue), "ready-due", "No follow-ups due today.")}
         </details>
         <h3 class="sub-h">Not called yet <span class="muted">(${rows.filter((l) => !isDue(l)).length})</span></h3>
-        ${tabList(rows.filter((l) => !isDue(l)), "ready", tab === "spanish" ? "No Spanish-speaking leads yet. Abby adds them every night." : "Nothing here yet.")}`
+        ${tabList(rows.filter((l) => !isDue(l)), "ready", "No Spanish-speaking leads yet. Abby adds them every night.")}`
       : tabList(rows, tab, tab === "disqualified" ? "No disqualified leads. Use 🚫 Disqualify on a lead's page." : "Nothing here yet.")}`;
     el.querySelectorAll(".trow").forEach((r) => r.addEventListener("click", (e) => { if (!e.target.closest("a, label, input, button")) location.hash = r.dataset.href; }));
     // Collapsible sections (Ready tab's "Follow-ups due today", 2026-11-10): open or closed is remembered in this browser.
@@ -1526,7 +1530,7 @@ ${links()}`;
     try {
       if (h === "/") await todayView();
       else if (h === "/inquired") await inquiredView();
-      else if (["/ready", "/spanish", "/missing", "/onlyemail", "/called", "/disqualified"].includes(h)) await tabView(h.slice(1));
+      else if (["/ready", "/followups", "/spanish", "/missing", "/onlyemail", "/called", "/disqualified"].includes(h)) await tabView(h.slice(1));
       else if (h === "/calendar") await calendarView();
       else if (h === "/pipeline") await pipelineView();
       else if (h === "/analytics") await window.AWDAnalytics.view({ sb, app, esc, toast, fail });
