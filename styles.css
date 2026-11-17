@@ -629,3 +629,16 @@ details.fold > summary .sub-h { flex: 1; }
 :root[data-theme="dark"] .ind-chip:hover { background: var(--s2); }
 :root[data-theme="dark"] .ind-chip.on { background: var(--y); border-color: var(--y); color: #1F2937; }
 :root[data-theme="dark"] .ind-chip.on span { background: rgba(31,41,55,.18); color: #1F2937; }
+
+/* Call backs (2026-11-17): red on the calendar and on the lead page box. */
+.cal-ev.cb, .agenda-tag.cb { background: #FEE2E2; color: #991B1B; }
+.cal-ev.cb { font-weight: 600; box-shadow: inset 3px 0 0 #DC2626; }
+.btn.cb-btn { background: #DC2626; border-color: #DC2626; color: #fff; }
+.btn.cb-btn:hover { background: #B91C1C; border-color: #B91C1C; }
+.meet.cb b { color: #B91C1C; }
+.pill.cb-late { background: #FEE2E2; color: #991B1B; }
+@media (max-width: 640px) { .cal-ev.cb { background: #DC2626; box-shadow: none; } .cal-key .cal-ev.cb { background: #FEE2E2; } }
+:root[data-theme="dark"] .cal-ev.cb, :root[data-theme="dark"] .agenda-tag.cb, :root[data-theme="dark"] .pill.cb-late { background: rgba(248,113,113,.2); color: #FCA5A5; }
+:root[data-theme="dark"] .cal-ev.cb { box-shadow: inset 3px 0 0 #F87171; }
+:root[data-theme="dark"] .meet.cb b { color: #FCA5A5; }
+@media (max-width: 640px) { :root[data-theme="dark"] .cal-ev.cb { background: #F87171; box-shadow: none; } :root[data-theme="dark"] .cal-key .cal-ev.cb { background: rgba(248,113,113,.2); } }

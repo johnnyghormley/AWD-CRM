@@ -75,6 +75,11 @@
   // Meetings (meetings table, meetings.sql): booked on a lead page, shown there and on the Calendar tab.
   const MEETING_KINDS = ["Phone call", "Video call", "In person"];
   const MEETING_ICON = { "Phone call": "📞", "Video call": "🎥", "In person": "🤝" };
+  // Callbacks (2026-11-17, Johnathon: "add another box that says schedule a call back ... put it on the calendar and mark it red").
+  // Stored in the meetings table with kind "Callback" (no new table or column), so everything that means "a meeting is
+  // booked" filters them out with .neq("kind", CALLBACK): Ready tabs, Deals, Tasks, the lead page's Meetings box.
+  const CALLBACK = "Callback";
+  const isCallback = (m) => m.kind === CALLBACK;
   const fmtMeeting = (m) => new Date(m.starts_at).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
   const localDay = (iso) => new Date(iso).toLocaleDateString("en-CA");
   // Google Calendar "add event" link, prefilled (opens in the browser; nothing is sent anywhere until you save it there).
@@ -215,7 +220,7 @@
   // Loaded on every page change by route(); a meeting marked done or canceled puts the lead back.
   let meetingLeads = new Set();
   async function loadMeetingLeads() {
-    const { data, error } = await sb.from("meetings").select("lead_id").eq("status", "scheduled");
+    const { data, error } = await sb.from("meetings").select("lead_id").eq("status", "scheduled").neq("kind", CALLBACK);
     meetingLeads = error ? new Set() : new Set((data || []).map((m) => String(m.lead_id)));
   }
   const hasMeeting = (l) => meetingLeads.has(String(l.id));
@@ -500,7 +505,7 @@
     if (window.AbbyRunner) AbbyRunner.start(leads);
   }
 
-  // ---------- Calendar: booked meetings, month grid + upcoming list ----------
+  // ---------- Calendar: booked meetings and call backs (red), month grid + upcoming list ----------
   // Follow-ups were taken off the calendar (2026-11-16, Johnathon); they have their own Follow-ups tab.
   let calMonth = null; // "YYYY-MM" being shown
   async function calendarView() {
@@ -509,10 +514,11 @@
     if (!calMonth) calMonth = t.slice(0, 7);
     // events by day: { day: "YYYY-MM-DD", type: "meet"|"fu", ... }
     const events = [];
-    (meets || []).forEach((m) => events.push({ day: localDay(m.starts_at), type: "meet", lead: m.lead_id, name: (m.leads && m.leads.business_name) || "Lead",
+    // Callbacks show in red (type "cb"), meetings in blue.
+    (meets || []).forEach((m) => events.push({ day: localDay(m.starts_at), type: isCallback(m) ? "cb" : "meet", lead: m.lead_id, name: (m.leads && m.leads.business_name) || "Lead",
       time: new Date(m.starts_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }), kind: m.kind, done: m.status === "done",
-      sub: [m.kind, `${m.duration_min} min`, m.location].filter(Boolean).join(" · "), sort: m.starts_at }));
-    events.sort((a, b) => a.day.localeCompare(b.day) || (a.type === b.type ? a.sort.localeCompare(b.sort) : a.type === "meet" ? -1 : 1));
+      sub: isCallback(m) ? ["Call back", m.location, m.note].filter(Boolean).join(" · ") : [m.kind, `${m.duration_min} min`, m.location].filter(Boolean).join(" · "), sort: m.starts_at }));
+    events.sort((a, b) => a.day.localeCompare(b.day) || (a.type === b.type ? a.sort.localeCompare(b.sort) : a.type === "fu" ? 1 : -1));
     const byDay = {};
     events.forEach((e) => (byDay[e.day] = byDay[e.day] || []).push(e));
 
@@ -520,7 +526,7 @@
     const first = new Date(y, mo - 1, 1), days = new Date(y, mo, 0).getDate();
     const ymd = (d) => `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
     const shift = (n) => { const d = new Date(y, mo - 1 + n, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
-    const chip = (e) => `<a class="cal-ev ${e.type}${e.late ? " late" : ""}${e.done ? " done" : ""}" href="#/lead/${e.lead}" title="${esc(e.name + (e.sub ? " · " + e.sub : ""))}">${e.type === "meet" ? `${MEETING_ICON[e.kind] || "📅"} ${esc(e.time)} ` : "↻ "}${esc(e.name)}</a>`;
+    const chip = (e) => `<a class="cal-ev ${e.type}${e.late ? " late" : ""}${e.done ? " done" : ""}" href="#/lead/${e.lead}" title="${esc(e.name + (e.sub ? " · " + e.sub : ""))}">${e.type === "meet" ? `${MEETING_ICON[e.kind] || "📅"} ${esc(e.time)} ` : e.type === "cb" ? `☎️ ${esc(e.time)} ` : "↻ "}${esc(e.name)}</a>`;
     let cells = "";
     for (let i = 0; i < first.getDay(); i++) cells += `<div class="cal-day blank"></div>`;
     for (let d = 1; d <= days; d++) {
@@ -529,8 +535,8 @@
     }
     const lateFu = events.filter((e) => e.type === "fu" && e.late);
     const ahead = events.filter((e) => e.day >= t && !e.done).slice(0, 40);
-    const row = (e) => `<a class="agenda-row" href="#/lead/${e.lead}"><span class="agenda-tag ${e.type}">${e.type === "meet" ? "Meeting" : "Follow-up"}</span>
-      <span><b>${esc(e.name)}</b>${e.type === "meet" ? ` · ${esc(e.time)}` : ""}<br><span class="muted small">${esc(e.sub || "")}</span></span></a>`;
+    const row = (e) => `<a class="agenda-row" href="#/lead/${e.lead}"><span class="agenda-tag ${e.type}">${e.type === "meet" ? "Meeting" : e.type === "cb" ? "Callback" : "Follow-up"}</span>
+      <span><b>${esc(e.name)}</b>${e.type !== "fu" ? ` · ${esc(e.time)}` : ""}<br><span class="muted small">${esc(e.sub || "")}</span></span></a>`;
     const groupRows = (list) => { let out = "", last = ""; list.forEach((e) => { if (e.day !== last) { last = e.day; out += `<div class="agenda-day">${e.day === t ? "Today · " : ""}${esc(fmtDate(e.day))}</div>`; } out += row(e); }); return out; };
 
     app.innerHTML = `
@@ -539,7 +545,7 @@
           <b>${first.toLocaleDateString("en-US", { month: "long", year: "numeric" })}</b>
           <button class="btn ghost small" id="cal-next" aria-label="Next month">›</button>
           <button class="btn ghost small" id="cal-today">Today</button></div></div>
-      <p class="muted small cal-key"><span class="cal-ev meet">📅 Meeting</span> · Book meetings from a lead's page. Follow-ups are on the Follow-ups tab.</p>
+      <p class="muted small cal-key"><span class="cal-ev meet">📅 Meeting</span> <span class="cal-ev cb">☎️ Callback</span> · Book meetings and call backs from a lead's page. Follow-ups are on the Follow-ups tab.</p>
       ${mErr ? `<p class="pill warn">Meetings aren't set up yet (run meetings.sql).</p>` : ""}
       <section class="card cal">
         ${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => `<div class="cal-dow">${d}</div>`).join("")}
@@ -742,7 +748,7 @@
     const [{ data: deals, error }, { data: leads }, { data: meets }, { data: reqs }, { data: designs }, { data: acts }] = await Promise.all([
       sb.from("deals").select("id,lead_id,stage,upfront,monthly"),
       sb.from("leads").select("id,business_name,call_status"),
-      sb.from("meetings").select("lead_id,status").in("status", ["scheduled", "done"]),
+      sb.from("meetings").select("lead_id,status").in("status", ["scheduled", "done"]).neq("kind", CALLBACK),
       sb.from("design_requests").select("business,status"),
       sb.from("designs").select("business,status,pkg,upfront,monthly"),
       sb.from("activities").select("lead_id,kind,note").or('kind.eq."Design sent",note.like."Payment link*",note.like."Asked Dex*",note.like."Deal removed*"')
@@ -916,7 +922,7 @@
   async function tasksView() {
     const [{ data: leads, error }, { data: meets, error: mErr }] = await Promise.all([
       sb.from("leads").select("id,business_name,owner_name,owner_phone,business_phone,call_status,follow_up_date,next_step").not("follow_up_date", "is", null),
-      sb.from("meetings").select("*, leads(business_name, owner_name, owner_phone, business_phone)").eq("status", "scheduled").order("starts_at", { ascending: true })
+      sb.from("meetings").select("*, leads(business_name, owner_name, owner_phone, business_phone)").eq("status", "scheduled").neq("kind", CALLBACK).order("starts_at", { ascending: true })
     ]);
     if (error) return fail(error);
     const t = today();
@@ -1031,8 +1037,11 @@
     ]);
     if (error) return fail(error);
     const nowIso = new Date().toISOString();
-    const upcoming = (meets || []).filter((m) => m.status === "scheduled");
-    const pastMeets = (meets || []).filter((m) => m.status !== "scheduled").slice(-3).reverse();
+    const realMeets = (meets || []).filter((m) => !isCallback(m)), cbs = (meets || []).filter(isCallback);
+    const upcoming = realMeets.filter((m) => m.status === "scheduled");
+    const pastMeets = realMeets.filter((m) => m.status !== "scheduled").slice(-3).reverse();
+    const cbOpen = cbs.filter((m) => m.status === "scheduled");
+    const cbPast = cbs.filter((m) => m.status !== "scheduled").slice(-3).reverse();
     // Dex requests for this business (the Designs app's queue), newest first, to show what's already asked for.
     const sameBusiness = l.business_name.replace(/[\\%_]/g, "\\$&"); // exact name, case-insensitive (ilike with wildcards escaped)
     // Employees can queue Dex and see the queue status too (2026-11-10), but not the built designs or the Designs tab.
@@ -1197,6 +1206,25 @@
         ${pastMeets.length ? `<p class="muted small" style="margin-top:8px">Earlier: ${pastMeets.map((m) => `${esc(fmtMeeting(m))} (${m.status === "done" ? "done" : "canceled"})`).join(" · ")}</p>` : ""}`}
       </section>
 
+      ${mErr ? "" : `<section class="card pad meets cbs">
+        <div class="meets-head"><h3>☎️ Schedule a call back</h3><button type="button" class="btn small cb-btn" id="cb-btn">Schedule</button></div>
+        <form id="cb-form" class="meet-form" hidden>
+          <div class="grid">
+            <label>Date<input type="date" name="date" required value="${today()}" min="${today()}"></label>
+            <label>Time<input type="time" name="time" required value="10:00" step="900"></label>
+            <label class="wide">Note <span class="muted small">(optional)</span><textarea name="note" rows="2" placeholder="e.g. Asked to call after 3, wants pricing"></textarea></label>
+          </div>
+          <div class="row-btns"><button class="btn cb-btn">Schedule call back</button><button type="button" class="btn ghost" id="cb-cancel">Cancel</button></div>
+        </form>
+        ${cbOpen.length ? cbOpen.map((m) => `<div class="meet cb ${m.starts_at < nowIso ? "late" : ""}">
+            <div><b>☎️ ${esc(fmtMeeting(m))}</b>${m.starts_at < nowIso ? ` <span class="pill cb-late">Past, not marked done</span>` : ""}
+              ${m.note ? `<div class="small">${esc(m.note)}</div>` : ""}</div>
+            <div class="meet-btns"><a class="btn ghost small" target="_blank" rel="noopener" href="${esc(gcalLink(m, l))}">+ Google Calendar</a>
+              <button type="button" class="btn ghost small" data-cb-done="${m.id}">✓ Done</button><button type="button" class="btn ghost small" data-cb-cancel="${m.id}">Cancel</button></div>
+          </div>`).join("") : `<p class="muted small">No call back scheduled.</p>`}
+        ${cbPast.length ? `<p class="muted small" style="margin-top:8px">Earlier: ${cbPast.map((m) => `${esc(fmtMeeting(m))} (${m.status === "done" ? "done" : "canceled"})`).join(" · ")}</p>` : ""}
+      </section>`}
+
       ${(window.AWD_PAYMENT_LINKS || []).length ? `<section class="card pad pay">
         <h3>💳 Send payment link</h3>
         <div class="pay-row">
@@ -1272,6 +1300,42 @@
       if (e1) return fail(e1);
       await sb.from("activities").insert({ lead_id: id, kind: "Note", note: `Meeting ${done ? "held" : "canceled"}: ${fmtMeeting(m)}, ${m.kind}` });
       toast(done ? "Marked done" : "Meeting canceled"); leadView(id);
+    });
+
+    // ---------- schedule / finish / cancel a call back (meetings row with kind "Callback") ----------
+    // Saving also sets the lead's follow-up date to that day (so it lands on Follow-ups / Spanish Ready and Tasks when
+    // it's due) and the next step to "Call back <when>". Done or Cancel clears those again if they still point at it.
+    const cbBtn = document.getElementById("cb-btn"), cbForm = document.getElementById("cb-form");
+    if (cbBtn && cbForm) {
+      cbBtn.onclick = () => { cbBtn.hidden = true; cbForm.hidden = false; cbForm.scrollIntoView({ block: "center", behavior: "smooth" }); };
+      document.getElementById("cb-cancel").onclick = () => { cbForm.hidden = true; cbBtn.hidden = false; };
+      cbForm.onsubmit = async (e) => {
+        e.preventDefault();
+        const f = new FormData(cbForm);
+        const start = new Date(`${f.get("date")}T${f.get("time")}`);
+        if (isNaN(start)) return toast("Pick a date and time", true);
+        const m = { lead_id: id, starts_at: start.toISOString(), duration_min: 15, kind: CALLBACK, location: usable(l.owner_phone) ? l.owner_phone : usable(l.business_phone) ? l.business_phone : null, note: f.get("note").trim() || null };
+        const { error: e1 } = await sb.from("meetings").insert(m);
+        if (e1) return fail(e1);
+        const next = `Call back ${fmtMeeting(m)}`;
+        const { error: e2 } = await sb.from("leads").update({ follow_up_date: f.get("date"), next_step: next }).eq("id", id);
+        if (e2) return fail(e2);
+        await sb.from("activities").insert({ lead_id: id, kind: "Note", note: `Callback scheduled: ${fmtMeeting(m)}${m.note ? `\n${m.note}` : ""}` });
+        toast(`Call back scheduled for ${fmtMeeting(m)}`); leadView(id);
+      };
+    }
+    app.querySelectorAll("[data-cb-done], [data-cb-cancel]").forEach((b) => b.onclick = async () => {
+      const done = !!b.dataset.cbDone, mid = b.dataset.cbDone || b.dataset.cbCancel;
+      const m = cbs.find((x) => x.id === mid);
+      if (!done && !confirm(`Cancel the call back on ${fmtMeeting(m)}?`)) return;
+      const { error: e1 } = await sb.from("meetings").update({ status: done ? "done" : "canceled" }).eq("id", mid);
+      if (e1) return fail(e1);
+      const clear = {};
+      if (l.follow_up_date === localDay(m.starts_at)) clear.follow_up_date = null;
+      if ((l.next_step || "") === `Call back ${fmtMeeting(m)}`) clear.next_step = null;
+      if (Object.keys(clear).length) await sb.from("leads").update(clear).eq("id", id);
+      await sb.from("activities").insert({ lead_id: id, kind: "Note", note: `Callback ${done ? "done" : "canceled"}: ${fmtMeeting(m)}` });
+      toast(done ? "Call back marked done" : "Call back canceled"); leadView(id);
     });
 
     // ---------- Have Dex build a free design: queue a design_requests row from this lead ----------
