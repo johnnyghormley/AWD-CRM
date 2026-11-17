@@ -317,14 +317,35 @@
     drawTab(leads, tab);
   }
 
+  // Industry filter chips (2026-11-17, Johnathon) on English Ready, Follow-ups and Spanish Ready. Groups come from
+  // industries.js (Industry text → chip name). The chosen chip is remembered per tab in this browser; tap it again
+  // or tap All to clear. Only chips with leads on that tab are shown.
+  const INDUSTRY_TABS = ["ready", "followups", "spanish"];
+  const indOf = (l) => (window.awdIndustry ? window.awdIndustry(l.trade) : "Other");
+  const indSaved = (tab) => { try { return localStorage.getItem("awd_ind_" + tab) || ""; } catch { return ""; } };
+  const indSave = (tab, v) => { try { v ? localStorage.setItem("awd_ind_" + tab, v) : localStorage.removeItem("awd_ind_" + tab); } catch {} };
+  function industryChips(all, tab) {
+    const counts = new Map();
+    all.forEach((l) => { const g = indOf(l); counts.set(g, (counts.get(g) || 0) + 1); });
+    let sel = indSaved(tab);
+    if (sel && !counts.get(sel)) sel = "";
+    const order = [...(window.AWD_INDUSTRIES || []).map(([n]) => n), "Other"];
+    const chip = (name, n, on) => `<button type="button" class="ind-chip${on ? " on" : ""}" data-ind="${esc(name)}" aria-pressed="${on}">${esc(name || "All")} <span>${n}</span></button>`;
+    const html = all.length ? `<div class="ind-chips" role="group" aria-label="Filter by industry">${chip("", all.length, !sel)}${order.filter((n) => counts.get(n)).map((n) => chip(n, counts.get(n), n === sel)).join("")}</div>` : "";
+    return { sel, html, rows: sel ? all.filter((l) => indOf(l) === sel) : all };
+  }
+
   function drawTab(leads, tab) {
     const el = app;
     const [, label, test, hint] = TABS.find(([k]) => k === tab);
-    const rows = leads.filter(test);
+    const all = leads.filter(test);
+    const ind = INDUSTRY_TABS.includes(tab) ? industryChips(all, tab) : { sel: "", html: "", rows: all };
+    const rows = ind.rows;
     setNavCounts(leads);
     el.innerHTML = `
-      <h2 class="h">${label} <span class="muted">(${rows.length})</span></h2>
+      <h2 class="h">${label} <span class="muted">(${ind.sel ? `${rows.length} of ${all.length}` : rows.length})</span></h2>
       <p class="muted small tab-hint">${hint}</p>
+      ${ind.html}
       ${tab === "called" ? `
         <h3 class="sub-h">Follow up <span class="muted">(${rows.filter(isFollow).length})</span></h3>
         ${tabList(rows.filter(isFollow), "called", "No follow-ups.")}
@@ -341,6 +362,16 @@
         ${tabList(rows.filter((l) => !isDue(l)), "ready", "No Spanish-speaking leads yet. Abby adds them every night.")}`
       : tabList(rows, tab, tab === "disqualified" ? "No disqualified leads. Use 🚫 Disqualify on a lead's page." : "Nothing here yet.")}`;
     el.querySelectorAll(".trow").forEach((r) => r.addEventListener("click", (e) => { if (!e.target.closest("a, label, input, button")) location.hash = r.dataset.href; }));
+    el.querySelectorAll(".ind-chip").forEach((b) => b.onclick = () => {
+      indSave(tab, b.dataset.ind === ind.sel ? "" : b.dataset.ind);
+      drawTab(leads, tab);
+    });
+    // On a phone the chips scroll sideways: keep the chosen one in view.
+    const onChip = el.querySelector(".ind-chip.on"), chipRow = el.querySelector(".ind-chips");
+    if (onChip && chipRow && chipRow.scrollWidth > chipRow.clientWidth) {
+      const c = chipRow.getBoundingClientRect(), o = onChip.getBoundingClientRect();
+      if (o.right > c.right) chipRow.scrollLeft += o.right - c.right + 8;
+    }
     // Collapsible sections (Ready tab's "Follow-ups due today", 2026-11-10): open or closed is remembered in this browser.
     el.querySelectorAll("details.fold").forEach((d) => d.addEventListener("toggle", () => { try { localStorage.setItem("awd_fold_" + d.dataset.fold, d.open ? "1" : "0"); } catch {} }));
     el.querySelectorAll("[data-restore]").forEach((b) => b.onclick = async () => {

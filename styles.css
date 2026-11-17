@@ -610,3 +610,22 @@ details.fold > summary::-webkit-details-marker { display: none; }
 details.fold > summary::before { content: "▾"; color: var(--muted); font-size: 14px; transition: transform .15s; margin-top: -6px; }
 details.fold:not([open]) > summary::before { transform: rotate(-90deg); }
 details.fold > summary .sub-h { flex: 1; }
+
+/* Industry filter chips on English Ready, Follow-ups and Spanish Ready (2026-11-17). Groups live in industries.js. */
+.ind-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 2px; }
+.ind-chip { font: 600 13px/1 Inter, system-ui, sans-serif; padding: 7px 12px; border-radius: 999px; border: 1px solid var(--line); background: #fff; color: var(--c); cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; }
+.ind-chip span { font-size: 11px; font-weight: 600; color: var(--muted); background: #F1F5F9; border-radius: 999px; padding: 2px 6px; }
+.ind-chip:hover { background: var(--y-soft); }
+.ind-chip.on { background: var(--y); border-color: var(--y); color: #1F2937; }
+.ind-chip.on span { background: rgba(31,41,55,.15); color: #1F2937; }
+.ind-chip:focus-visible { outline: 2px solid var(--y); outline-offset: 2px; }
+@media (max-width: 560px) {
+  .ind-chips { flex-wrap: nowrap; overflow-x: auto; margin-left: -2px; padding: 2px 2px 6px; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+  .ind-chips::-webkit-scrollbar { display: none; }
+  .ind-chip { flex: none; padding: 8px 12px; }
+}
+:root[data-theme="dark"] .ind-chip { background: var(--s1); border-color: #3A4656; color: #C9D2DE; }
+:root[data-theme="dark"] .ind-chip span { background: var(--s3); color: #C9D2DE; }
+:root[data-theme="dark"] .ind-chip:hover { background: var(--s2); }
+:root[data-theme="dark"] .ind-chip.on { background: var(--y); border-color: var(--y); color: #1F2937; }
+:root[data-theme="dark"] .ind-chip.on span { background: rgba(31,41,55,.18); color: #1F2937; }
