@@ -10,7 +10,9 @@
 // in this order). To catch a new spelling for an existing group, add the word to that group's pattern.
 // This only changes how leads are grouped on screen; it never edits lead data.
 window.AWD_INDUSTRIES = [
-  ["Daycares",      /day ?care|child[- ]?care|preschool|nursery school|family home/i],
+  // Pets (2026-11-18): above Daycares so "doggy daycare" lands here. \b keeps "carpet care" out.
+  ["Pets",          /\b(dog|pet|cat)s? ?(sit|walk|board|groom)|\bpet care|\bpet concierge|critter (care|sit)|\bkennel|\bcanine|\bdoggy|\bveterinar|\banimal care/i],
+  ["Daycares",     /day ?care|child[- ]?care|preschool|nursery school|family home/i],
   ["Med Spas",      /med ?spa|medical spa|laser|botox|injectable/i],
   ["Estheticians",  /esthetic|aesthetic|skin|wax|lash|brow|threading|facial|sugaring/i],
   ["Barbers",       /barber/i],
