@@ -643,22 +643,10 @@ details.fold > summary .sub-h { flex: 1; }
 :root[data-theme="dark"] .meet.cb b { color: #FCA5A5; }
 @media (max-width: 640px) { :root[data-theme="dark"] .cal-ev.cb { background: #F87171; box-shadow: none; } :root[data-theme="dark"] .cal-key .cal-ev.cb { background: rgba(248,113,113,.2); } }
 
-/* Microsoft Teams links on meetings (2026-11-18). */
+/* Meeting links (2026-11-18): Join meeting / Copy link, and Move (reschedule) on the lead page. */
 .teams { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
-.btn.teams-join { background: #5B5FC7; border-color: #5B5FC7; color: #fff; }
-.btn.teams-join:hover { background: #4F52B2; border-color: #4F52B2; }
-.teams-err { margin-top: 6px; font-size: 13px; color: #92400E; }
-.teams-err.muted { color: var(--muted); }
-.tlink { background: none; border: 0; padding: 0; font: inherit; font-weight: 600; color: var(--link, #2563EB); cursor: pointer; text-decoration: underline; }
-.tlink:disabled { opacity: .6; cursor: default; }
 .meet-move { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; padding-top: 6px; }
 .meet-move label { font-size: 12px; display: grid; gap: 2px; }
 .meet-move[hidden] { display: none; }
-.ms-line { margin-top: 8px; }
-.ms-h { margin-top: 18px; }
-.ms-card .row-btns { margin-top: 8px; }
-.ms-card code { font-size: 12px; word-break: break-all; }
 .agenda-join { display: flex; gap: 6px; padding: 0 16px 8px 84px; }
 @media (max-width: 560px) { .agenda-join { padding-left: 16px; } }
-:root[data-theme="dark"] .teams-err { color: #FCD34D; }
-:root[data-theme="dark"] .teams-err.muted { color: var(--muted); }
