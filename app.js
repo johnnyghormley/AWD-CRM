@@ -102,6 +102,42 @@
   // ---------- auth ----------
   async function session() { return (await sb.auth.getSession()).data.session; }
 
+  // ---------- Microsoft Teams links (2026-11-18) ----------
+  // Server functions in api/ms/ (setup notes in api/_ms.js), database setup in teams.sql. Booking a meeting adds an
+  // Outlook event with a Teams link on AWD's connected Microsoft 365 account. Nobody is invited and nothing is emailed.
+  async function msApi(path, body) {
+    const s = await session();
+    const r = await fetch("/api/ms/" + path, { method: body === undefined ? "GET" : "POST", headers: { Authorization: "Bearer " + (s ? s.access_token : ""), "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body) });
+    const j = await r.json().catch(() => ({ error: "No answer from the server", offline: true }));
+    if (!r.ok && !j.error) j.error = "Error " + r.status;
+    return j;
+  }
+  let msStatusP = null; // asked once per page load; the Team page asks again
+  const msStatus = (fresh) => (!fresh && msStatusP) || (msStatusP = msApi("status").catch((e) => ({ error: e.message, offline: true })));
+  const teamsSync = (mid) => msApi("meeting", { meeting_id: mid, action: "sync" }).catch((e) => ({ ok: false, error: e.message }));
+  const teamsDelete = (mid) => msApi("meeting", { meeting_id: mid, action: "delete" }).catch((e) => ({ ok: false, error: e.message }));
+  const teamsReady = (m) => "teams_join_url" in m; // false until teams.sql has been run
+  // Join / Copy link, or "not created" with Retry, under a meeting.
+  function teamsHtml(m) {
+    if (!teamsReady(m) || m.status !== "scheduled") return "";
+    if (m.teams_join_url) return `<div class="teams"><a class="btn small teams-join" href="${esc(m.teams_join_url)}" target="_blank" rel="noopener">Join Teams</a><button type="button" class="btn ghost small" data-copy-teams="${esc(m.teams_join_url)}">Copy link</button></div>`;
+    if (m.teams_error) return `<div class="teams-err">⚠️ Teams link not created – ${esc(m.teams_error.replace(/^Teams link not created:\s*/, ""))} ${isAdmin() ? `<a href="#/team">Connect Microsoft</a> · ` : ""}<button type="button" class="tlink" data-teams-retry="${m.id}">Retry</button></div>`;
+    if (m.ms_event_id) return `<div class="muted small">On the Outlook calendar.</div>`;
+    return `<div class="teams-err muted">No Teams link yet. <button type="button" class="tlink" data-teams-retry="${m.id}">${m.kind === "In person" ? "Add to Outlook" : "Create Teams link"}</button></div>`;
+  }
+  function bindTeamsButtons(root, after) {
+    root.querySelectorAll("[data-copy-teams]").forEach((b) => b.onclick = async () => {
+      try { await navigator.clipboard.writeText(b.dataset.copyTeams); toast("Teams link copied"); } catch { prompt("Copy the Teams link:", b.dataset.copyTeams); }
+    });
+    root.querySelectorAll("[data-teams-retry]").forEach((b) => b.onclick = async () => {
+      b.disabled = true; b.textContent = "Working…";
+      const r = await teamsSync(b.dataset.teamsRetry);
+      toast(r.ok ? "Teams link created" : r.error || "Teams link not created", !r.ok);
+      after();
+    });
+  }
+
   // ---------- roles (2026-11-08): admin (Johnathon) vs employee ----------
   // Employees can't see Campaigns-Me, Campaigns-Dad, Designs, Deals, Pipeline or Team. The database blocks those tables for them too (roles.sql).
   const ADMIN_ROUTE = /^\/(campaigns(-me)?(\/|$)|designs$|deals(\/|$)|pipeline$|team$|analytics$)/;
@@ -517,7 +553,8 @@
     // Callbacks show in red (type "cb"), meetings in blue.
     (meets || []).forEach((m) => events.push({ day: localDay(m.starts_at), type: isCallback(m) ? "cb" : "meet", lead: m.lead_id, name: (m.leads && m.leads.business_name) || "Lead",
       time: new Date(m.starts_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }), kind: m.kind, done: m.status === "done",
-      sub: isCallback(m) ? ["Call back", m.location, m.note].filter(Boolean).join(" · ") : [m.kind, `${m.duration_min} min`, m.location].filter(Boolean).join(" · "), sort: m.starts_at }));
+      sub: isCallback(m) ? ["Call back", m.location, m.note].filter(Boolean).join(" · ") : [m.kind, `${m.duration_min} min`, m.location, m.teams_join_url && "Teams"].filter(Boolean).join(" · "), sort: m.starts_at,
+      join: !isCallback(m) && m.status === "scheduled" ? m.teams_join_url : null }));
     events.sort((a, b) => a.day.localeCompare(b.day) || (a.type === b.type ? a.sort.localeCompare(b.sort) : a.type === "fu" ? 1 : -1));
     const byDay = {};
     events.forEach((e) => (byDay[e.day] = byDay[e.day] || []).push(e));
@@ -536,7 +573,7 @@
     const lateFu = events.filter((e) => e.type === "fu" && e.late);
     const ahead = events.filter((e) => e.day >= t && !e.done).slice(0, 40);
     const row = (e) => `<a class="agenda-row" href="#/lead/${e.lead}"><span class="agenda-tag ${e.type}">${e.type === "meet" ? "Meeting" : e.type === "cb" ? "Callback" : "Follow-up"}</span>
-      <span><b>${esc(e.name)}</b>${e.type !== "fu" ? ` · ${esc(e.time)}` : ""}<br><span class="muted small">${esc(e.sub || "")}</span></span></a>`;
+      <span><b>${esc(e.name)}</b>${e.type !== "fu" ? ` · ${esc(e.time)}` : ""}<br><span class="muted small">${esc(e.sub || "")}</span></span></a>${e.join ? `<div class="agenda-join"><a class="btn small teams-join" href="${esc(e.join)}" target="_blank" rel="noopener">Join Teams</a><button type="button" class="btn ghost small" data-copy-teams="${esc(e.join)}">Copy link</button></div>` : ""}`;
     const groupRows = (list) => { let out = "", last = ""; list.forEach((e) => { if (e.day !== last) { last = e.day; out += `<div class="agenda-day">${e.day === t ? "Today · " : ""}${esc(fmtDate(e.day))}</div>`; } out += row(e); }); return out; };
 
     app.innerHTML = `
@@ -557,6 +594,7 @@
     document.getElementById("cal-prev").onclick = () => { calMonth = shift(-1); calendarView(); };
     document.getElementById("cal-next").onclick = () => { calMonth = shift(1); calendarView(); };
     document.getElementById("cal-today").onclick = () => { calMonth = t.slice(0, 7); calendarView(); };
+    bindTeamsButtons(app, calendarView);
   }
 
   async function leadsView() {
@@ -1199,10 +1237,17 @@
         ${upcoming.length ? upcoming.map((m) => `<div class="meet ${m.starts_at < nowIso ? "late" : ""}">
             <div><b>${MEETING_ICON[m.kind] || "📅"} ${esc(fmtMeeting(m))}</b> · ${esc(m.kind)} · ${m.duration_min} min${m.starts_at < nowIso ? ` <span class="pill warn">Past, not marked done</span>` : ""}
               ${m.location ? `<div class="muted small">${/^https?:\/\//i.test(m.location) ? `<a href="${esc(m.location)}" target="_blank" rel="noopener">${esc(m.location)}</a>` : esc(m.location)}</div>` : ""}
-              ${m.note ? `<div class="small">${esc(m.note)}</div>` : ""}</div>
+              ${m.note ? `<div class="small">${esc(m.note)}</div>` : ""}
+              ${teamsHtml(m)}</div>
             <div class="meet-btns"><a class="btn ghost small" target="_blank" rel="noopener" href="${esc(gcalLink(m, l))}">+ Google Calendar</a>
-              <button type="button" class="btn ghost small" data-meet-done="${m.id}">✓ Done</button><button type="button" class="btn ghost small" data-meet-cancel="${m.id}">Cancel</button></div>
+              <button type="button" class="btn ghost small" data-meet-move="${m.id}">Move</button><button type="button" class="btn ghost small" data-meet-done="${m.id}">✓ Done</button><button type="button" class="btn ghost small" data-meet-cancel="${m.id}">Cancel</button></div>
+            <form class="meet-move" data-move-form="${m.id}" hidden>
+              <label>New date<input type="date" name="date" required value="${localDay(m.starts_at)}"></label>
+              <label>Time<input type="time" name="time" required step="900" value="${new Date(m.starts_at).toTimeString().slice(0, 5)}"></label>
+              <button class="btn small">Save</button><button type="button" class="btn ghost small" data-move-cancel="${m.id}">Cancel</button>
+            </form>
           </div>`).join("") : `<p class="muted small">No meetings booked.</p>`}
+        <p class="muted small ms-line" id="ms-line" hidden></p>
         ${pastMeets.length ? `<p class="muted small" style="margin-top:8px">Earlier: ${pastMeets.map((m) => `${esc(fmtMeeting(m))} (${m.status === "done" ? "done" : "canceled"})`).join(" · ")}</p>` : ""}`}
       </section>
 
@@ -1286,10 +1331,14 @@
         if (isNaN(start)) return toast("Pick a date and time", true);
         const m = { lead_id: id, starts_at: start.toISOString(), duration_min: +f.get("duration") || 30, kind: f.get("kind"),
           location: f.get("location").trim() || null, note: f.get("note").trim() || null };
-        const { error: e1 } = await sb.from("meetings").insert(m);
-        if (e1) return fail(e1);
+        const btn = meetForm.querySelector("button.btn"); btn.disabled = true; btn.textContent = "Booking…";
+        const { data: saved, error: e1 } = await sb.from("meetings").insert(m).select("id").single();
+        if (e1) { btn.disabled = false; btn.textContent = "Book meeting"; return fail(e1); }
         await sb.from("activities").insert({ lead_id: id, kind: "Note", note: `Meeting booked: ${fmtMeeting(m)}, ${m.kind}, ${m.duration_min} min${m.location ? ` (${m.location})` : ""}${m.note ? `\n${m.note}` : ""}` });
-        toast(`Meeting booked for ${fmtMeeting(m)}`); leadView(id);
+        // The meeting is saved either way; the Teams link is added after (or the page shows why not, with Retry).
+        const t = await teamsSync(saved.id);
+        toast(t.ok ? `Meeting booked for ${fmtMeeting(m)} with a Teams link` : `Meeting booked for ${fmtMeeting(m)}${t.offline ? "" : ". Teams link not created"}`, !t.ok && !t.offline);
+        leadView(id);
       };
     }
     app.querySelectorAll("[data-meet-done], [data-meet-cancel]").forEach((b) => b.onclick = async () => {
@@ -1299,7 +1348,37 @@
       const { error: e1 } = await sb.from("meetings").update({ status: done ? "done" : "canceled" }).eq("id", mid);
       if (e1) return fail(e1);
       await sb.from("activities").insert({ lead_id: id, kind: "Note", note: `Meeting ${done ? "held" : "canceled"}: ${fmtMeeting(m)}, ${m.kind}` });
+      // Canceled: take it off the Outlook calendar too (a held meeting stays there).
+      if (!done && m.ms_event_id) { const r = await teamsDelete(mid); if (!r.ok) toast(`Meeting canceled, but it's still on the Outlook calendar: ${r.error}`, true); }
       toast(done ? "Marked done" : "Meeting canceled"); leadView(id);
+    });
+    // Move (reschedule) a meeting; its Outlook event and Teams link move with it.
+    app.querySelectorAll("[data-meet-move], [data-move-cancel]").forEach((b) => b.onclick = () => {
+      const fm = app.querySelector(`[data-move-form="${b.dataset.meetMove || b.dataset.moveCancel}"]`);
+      fm.hidden = !!b.dataset.moveCancel;
+      if (!fm.hidden) fm.elements.date.focus();
+    });
+    app.querySelectorAll("[data-move-form]").forEach((fm) => fm.onsubmit = async (e) => {
+      e.preventDefault();
+      const m = (meets || []).find((x) => x.id === fm.dataset.moveForm);
+      const start = new Date(`${fm.elements.date.value}T${fm.elements.time.value}`);
+      if (isNaN(start)) return toast("Pick a date and time", true);
+      const moved = { ...m, starts_at: start.toISOString() };
+      const { error: e1 } = await sb.from("meetings").update({ starts_at: moved.starts_at }).eq("id", m.id);
+      if (e1) return fail(e1);
+      await sb.from("activities").insert({ lead_id: id, kind: "Note", note: `Meeting moved: ${fmtMeeting(m)} → ${fmtMeeting(moved)}, ${m.kind}` });
+      let msg = `Meeting moved to ${fmtMeeting(moved)}`, bad = false;
+      if (teamsReady(m) && (m.ms_event_id || m.teams_error)) { const r = await teamsSync(m.id); if (!r.ok && !r.offline) { msg += ". Teams/Outlook not updated"; bad = true; } }
+      toast(msg, bad); leadView(id);
+    });
+    bindTeamsButtons(app, () => leadView(id));
+    // "Teams links on/off" line under the meetings (filled in once the server answers; hidden if it can't be reached).
+    if (upcoming.length || meetBtn) msStatus().then((s) => {
+      const line = document.getElementById("ms-line");
+      if (!line || s.offline || s.configured === undefined) return;
+      line.innerHTML = s.connected ? `🟣 Teams links on · ${esc(s.account_email || s.account_name || "Microsoft connected")}`
+        : `Teams links off: ${s.error ? esc(s.error) : s.configured ? "Microsoft isn't connected." : "Microsoft isn't set up yet."}${isAdmin() ? ` <a href="#/team">Microsoft settings</a>` : ""}`;
+      line.hidden = false;
     });
 
     // ---------- schedule / finish / cancel a call back (meetings row with kind "Callback") ----------
@@ -1526,6 +1605,8 @@ ${links()}`;
     };
     document.getElementById("del").onclick = async () => {
       if (!confirm(`Delete ${l.business_name} and its history? This can't be undone.`)) return;
+      // Take its booked meetings off the Outlook calendar first (the meetings rows go with the lead).
+      for (const m of (meets || []).filter((x) => x.ms_event_id && x.status === "scheduled")) await teamsDelete(m.id);
       const { error: e4 } = await sb.from("leads").delete().eq("id", id);
       if (e4) return fail(e4);
       toast("Lead deleted"); location.hash = "#/leads";
@@ -1594,12 +1675,51 @@ ${links()}`;
         <div class="row-side"><select data-role="${u.user_id}" ${u.user_id === me ? "disabled" : ""}>
           <option value="employee" ${u.role === "employee" ? "selected" : ""}>Employee</option>
           <option value="admin" ${u.role === "admin" ? "selected" : ""}>Admin</option></select></div></div>`).join("") || `<p class="muted pad">No one yet.</p>`}
-      </div></div>`;
+      </div>
+      <h3 class="sub-h ms-h">🟣 Microsoft Teams links</h3>
+      <div class="card pad ms-card" id="ms-card"><p class="muted small">Checking…</p></div></div>`;
+    // Back from Microsoft sign-in (api/ms/callback adds ?ms=connected or ?ms=error&why=...).
+    const back = new URLSearchParams(location.search);
+    if (back.get("ms")) { toast(back.get("ms") === "connected" ? "Microsoft connected" : `Microsoft not connected: ${back.get("why") || "something went wrong"}`, back.get("ms") !== "connected"); history.replaceState(null, "", location.pathname + location.hash); }
+    drawMsCard();
     app.querySelectorAll("[data-role]").forEach((sel) => (sel.onchange = async () => {
       const { error: e } = await sb.from("crm_users").update({ role: sel.value }).eq("user_id", sel.dataset.role);
       if (e) return fail(e);
       toast("Role saved");
     }));
+  }
+
+  // Team page: connect AWD's Microsoft 365 account (admins). Until the Vercel variables exist it just says it isn't set up.
+  async function drawMsCard() {
+    const box = document.getElementById("ms-card");
+    if (!box) return;
+    const s = await msStatus(true);
+    const how = `<p class="muted small">When anyone books a meeting in the CRM, it's added to this Microsoft account's Outlook calendar with a Teams link (in-person meetings get the calendar event only). The link shows on the lead page and the Calendar. Nobody is invited and Microsoft emails no one: you send the link yourself.</p>`;
+    if (s.offline || s.configured === undefined || !s.configured) {
+      box.innerHTML = `<p><b>Microsoft isn't set up yet.</b></p>${how}
+        <button type="button" class="btn" disabled>Microsoft isn't set up yet</button>
+        <p class="muted small">${s.missing && s.missing.length ? `Still missing in Vercel: <code>${s.missing.map(esc).join("</code>, <code>")}</code>.` : s.offline ? "The server couldn't be reached." : esc(s.error || "")}
+        Redirect URI: <code>${esc(s.redirect_uri || "https://awd-crm.vercel.app/api/ms/callback")}</code> · Scopes: <code>${esc(s.scopes || "offline_access User.Read Calendars.ReadWrite OnlineMeetings.ReadWrite")}</code></p>`;
+      return;
+    }
+    box.innerHTML = s.connected
+      ? `<p><b>Connected:</b> ${esc(s.account_name || "")}${s.account_email ? ` (${esc(s.account_email)})` : ""}${s.connected_at ? ` <span class="muted small">since ${fmtTime(s.connected_at)}</span>` : ""}</p>${how}
+         <div class="row-btns"><button type="button" class="btn ghost" id="ms-connect">Reconnect</button><button type="button" class="btn ghost" id="ms-disconnect">Disconnect</button></div>`
+      : `<p><b>Not connected.</b>${s.error ? ` <span class="pill warn">${esc(s.error)}</span>` : ""}</p>${how}
+         <p class="muted small">Sign in with AWD's Microsoft 365 business account (never the CPA4SBA one; the CRM refuses it).</p>
+         <button type="button" class="btn" id="ms-connect">Connect Microsoft</button>`;
+    const c = document.getElementById("ms-connect");
+    if (c) c.onclick = async () => {
+      c.disabled = true;
+      const r = await msApi("connect", {});
+      if (r.url) location.href = r.url; else { c.disabled = false; toast(r.error || "Couldn't start the Microsoft sign-in", true); }
+    };
+    const d = document.getElementById("ms-disconnect");
+    if (d) d.onclick = async () => {
+      if (!confirm("Disconnect Microsoft? New meetings won't get Teams links until you connect again.")) return;
+      const r = await msApi("connect", { disconnect: true });
+      toast(r.ok ? "Microsoft disconnected" : r.error, !r.ok); drawMsCard();
+    };
   }
 
   // ---------- router ----------
