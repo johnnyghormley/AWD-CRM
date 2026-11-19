@@ -225,9 +225,147 @@
   document.addEventListener("visibilitychange", backToCrm);
   drawCallBar(); // a call started before a reload is still waiting to be logged
 
+  // ---------- Texts from Johnathon's cell (2026-11-19) ----------
+  // SMS Gateway for Android (sms-gate.app) in Cloud mode; server routes in api/sms/ (setup notes in api/_sms.js), table in
+  // sms.sql. Admins only (it's his own number). One text to one lead per Send press: no bulk, no scheduling, nothing
+  // automatic. Replies come in through the webhook; unknown senders are listed on the Texts tab.
+  async function smsApi(path, body) {
+    const s = await session();
+    try {
+      const r = await fetch("/api/sms/" + path, { method: body === undefined ? "GET" : "POST", headers: { Authorization: "Bearer " + (s ? s.access_token : ""), "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
+      const j = await r.json().catch(() => ({ error: "No answer from the server", offline: true }));
+      if (!r.ok && !j.error) j.error = "Error " + r.status;
+      return j;
+    } catch (e) { return { error: e.message, offline: true }; }
+  }
+  let smsSetupP = null;
+  const smsSetup = (fresh) => (!fresh && smsSetupP) || (smsSetupP = smsApi("setup"));
+  const SMS_STATUS = { pending: "Sending…", sent: "Sent", delivered: "Delivered ✓", failed: "Failed", received: "" };
+  async function refreshTextCount() {
+    const b = nav.querySelector('[data-count="texts"]');
+    if (!b || !isAdmin()) return;
+    const { count, error } = await sb.from("sms_messages").select("id", { count: "exact", head: true }).eq("direction", "in").is("read_at", null);
+    b.textContent = !error && count ? count : "";
+    b.classList.toggle("hot", !error && count > 0);
+  }
+  const smsTime = (t) => { const d = new Date(t); return d.toDateString() === new Date().toDateString() ? clock(t) : d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); };
+  const segs = (t) => { const n = t.length, uni = /[^\x00-\x7F]/.test(t); return n === 0 ? 0 : uni ? (n <= 70 ? 1 : Math.ceil(n / 67)) : (n <= 160 ? 1 : Math.ceil(n / 153)); };
+
+  let textBox = null, textTimer = null;
+  function closeTexts() { clearInterval(textTimer); textTimer = null; if (textBox) textBox.remove(); textBox = null; }
+  async function openTexts(leadId) {
+    closeTexts();
+    const box = textBox = document.createElement("aside");
+    box.className = "textbox"; box.setAttribute("role", "dialog"); box.setAttribute("aria-label", "Text conversation");
+    box.innerHTML = `<p class="muted pad">Loading…</p>`;
+    document.body.appendChild(box);
+    const [{ data: l }, setup] = await Promise.all([sb.from("leads").select("id, business_name, owner_name, owner_phone").eq("id", leadId).single(), smsSetup()]);
+    if (textBox !== box || !l) return;
+    const ready = !setup.offline && !!setup.gateway;
+    box.innerHTML = `
+      <div class="textbox-head">
+        <div><b>${esc(l.business_name)}</b><div class="muted small">${usable(l.owner_name) ? esc(l.owner_name.split(" (")[0]) + " · " : ""}${esc(l.owner_phone || "")}</div></div>
+        <button type="button" class="callbox-x" data-text-close aria-label="Close">×</button></div>
+      <div class="textbox-thread" aria-live="polite"></div>
+      ${ready ? "" : `<p class="textbox-note">Texting from the CRM isn't set up yet${setup.missing && setup.missing.length ? ` (Vercel still needs ${setup.missing.map(esc).join(", ")})` : ""}. <a href="sms:${esc(tel(l.owner_phone))}">Open in your messaging app</a> instead.</p>`}
+      <form class="textbox-form">
+        <textarea name="body" rows="3" maxlength="1000" placeholder="Text ${esc(usable(l.owner_name) ? l.owner_name.split(" ")[0] : l.business_name)}…" aria-label="Message" ${ready ? "" : "disabled"}></textarea>
+        <div class="textbox-row"><span class="muted small" data-text-count>One text to ${esc(l.owner_phone || "")}. Sent only when you press Send.</span><button class="btn" ${ready ? "" : "disabled"}>Send</button></div>
+      </form>`;
+    const thread = box.querySelector(".textbox-thread"), form = box.querySelector("form"), ta = form.elements.body, counter = box.querySelector("[data-text-count]");
+    box.querySelector("[data-text-close]").onclick = closeTexts;
+    let last = "";
+    const load = async () => {
+      const { data: msgs, error } = await sb.from("sms_messages").select("*").eq("lead_id", leadId).order("created_at", { ascending: true }).limit(500);
+      if (textBox !== box) return;
+      if (error) { thread.innerHTML = `<p class="textbox-note">${/sms_messages/.test(error.message) ? "Texts aren't set up in the database yet: run <code>sms.sql</code> in Supabase." : esc(error.message)}</p>`; return; }
+      const sig = JSON.stringify((msgs || []).map((m) => [m.id, m.status]));
+      if (sig !== last) {
+        last = sig;
+        thread.innerHTML = (msgs || []).map((m) => `<div class="bubble ${m.direction}${m.status === "failed" ? " failed" : ""}">
+            <div class="bubble-body">${esc(m.body).replace(/\n/g, "<br>")}</div>
+            <div class="bubble-meta">${smsTime(m.created_at)}${m.direction === "out" ? ` · ${SMS_STATUS[m.status] || esc(m.status)}${m.status === "failed" && m.error ? `: ${esc(m.error)}` : ""}` : ""}</div></div>`).join("")
+          || `<p class="muted small textbox-empty">No texts with ${esc(l.business_name)} yet.</p>`;
+        thread.scrollTop = thread.scrollHeight;
+      }
+      // Opening the thread marks their replies read.
+      if ((msgs || []).some((m) => m.direction === "in" && !m.read_at)) {
+        await sb.from("sms_messages").update({ read_at: new Date().toISOString() }).eq("lead_id", leadId).eq("direction", "in").is("read_at", null);
+        refreshTextCount();
+      }
+    };
+    await load();
+    textTimer = setInterval(load, 10000); // new replies and delivery updates while it's open
+    ta.oninput = () => { const t = ta.value.trim(); counter.textContent = t ? `${t.length} characters · ${segs(t)} text${segs(t) === 1 ? "" : "s"} · one recipient` : `One text to ${l.owner_phone || ""}. Sent only when you press Send.`; };
+    ta.onkeydown = (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) form.requestSubmit(); };
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const body = ta.value.trim();
+      if (!body) return toast("Type a message first", true);
+      const btn = form.querySelector("button"); btn.disabled = true; btn.textContent = "Sending…";
+      const r = await smsApi("send", { lead_id: leadId, body });
+      btn.disabled = false; btn.textContent = "Send";
+      if (r.ok) { ta.value = ""; ta.oninput(); toast("Text sent to the gateway"); } else toast(r.error || "Text not sent", true);
+      last = ""; await load();
+    };
+    if (ready) ta.focus();
+  }
+  document.addEventListener("click", (e) => { const b = e.target.closest && e.target.closest("[data-text-lead]"); if (b) { e.preventDefault(); e.stopPropagation(); openTexts(b.dataset.textLead); } }, true);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && textBox) closeTexts(); });
+
+  // Texts tab (admins): conversations with unread replies first, texts from unknown senders, and the setup steps.
+  async function textsView() {
+    const [{ data: msgs, error }, setup] = await Promise.all([
+      sb.from("sms_messages").select("*, leads(business_name, owner_name)").order("created_at", { ascending: false }).limit(1000), smsSetup(true)]);
+    const convs = new Map(), unknown = [];
+    (msgs || []).forEach((m) => {
+      if (!m.lead_id) return unknown.push(m);
+      if (!convs.has(m.lead_id)) convs.set(m.lead_id, { lead: m.lead_id, name: (m.leads && m.leads.business_name) || "Lead", last: m, unread: 0 });
+      const c = convs.get(m.lead_id);
+      if (m.created_at > c.last.created_at) c.last = m;
+      if (m.direction === "in" && !m.read_at) c.unread++;
+    });
+    const list = [...convs.values()].sort((a, b) => (b.unread > 0) - (a.unread > 0) || b.last.created_at.localeCompare(a.last.created_at));
+    const yes = (v) => v ? "✅" : "❌";
+    const hooks = setup.webhooks || [];
+    app.innerHTML = `
+      <h2 class="h">Texts</h2>
+      <p class="muted small tab-hint">Texts to and from leads, sent from your own cell through the SMS Gateway app. Each Send is one text to one lead, only when you press it. Replies show here and on the lead's timeline.</p>
+      ${error ? `<p class="pill warn">${/sms_messages/.test(error.message) ? "Run sms.sql in Supabase to turn texts on." : esc(error.message)}</p>` : ""}
+      <h3 class="sub-h">Conversations <span class="muted">(${list.length})</span></h3>
+      <div class="tlist">${list.map((c) => `<div class="trow${c.unread ? " unread" : ""}" data-text-lead="${c.lead}">
+          <div class="trow-main"><span class="trow-name">${esc(c.name)}${c.unread ? ` <span class="pill text-unread">${c.unread} new</span>` : ""}</span>
+            <span class="trow-contact">${c.last.direction === "out" ? "You: " : ""}${esc(c.last.body.slice(0, 90))}${c.last.body.length > 90 ? "…" : ""}</span></div>
+          <div class="trow-extra"><span class="muted small">${smsTime(c.last.created_at)}${c.last.direction === "out" ? ` · ${SMS_STATUS[c.last.status] || ""}` : ""}</span></div></div>`).join("") || `<p class="muted pad">No texts yet. Use 💬 Text on a lead.</p>`}</div>
+      <h3 class="sub-h">Unknown sender <span class="muted">(${unknown.length})</span></h3>
+      <div class="tlist">${unknown.map((m) => `<div class="trow${m.read_at ? "" : " unread"}">
+          <div class="trow-main"><span class="trow-name">${esc(m.phone)}${m.read_at ? "" : ` <span class="pill text-unread">new</span>`}</span><span class="trow-contact">${esc(m.body)}</span></div>
+          <div class="trow-extra"><span class="muted small">${smsTime(m.created_at)}</span>${m.read_at ? "" : `<button type="button" class="btn ghost small" data-sms-read="${m.id}">Mark read</button>`}</div></div>`).join("") || `<p class="muted pad">None. Texts from numbers that don't match a lead's phone land here.</p>`}</div>
+      <h3 class="sub-h">Setup</h3>
+      <div class="card pad sms-setup">
+        ${setup.offline ? `<p class="muted small">The server couldn't be reached.</p>` : `
+        <p class="small">${yes(setup.gateway)} Gateway login (<code>SMSGATE_USERNAME</code>, <code>SMSGATE_PASSWORD</code>) · ${yes(setup.signing)} <code>SMSGATE_SIGNING_KEY</code> · ${yes(setup.db)} <code>SUPABASE_SECRET_KEY</code> · ${error ? "❌" : "✅"} <code>sms.sql</code></p>
+        <p class="small">Webhooks registered: ${hooks.length ? hooks.map((w) => esc(w.event)).join(", ") : "none yet"}${setup.error ? ` <span class="pill warn">${esc(setup.error)}</span>` : ""}</p>
+        <button type="button" class="btn" id="sms-register" ${setup.missing && setup.missing.length ? "disabled" : ""}>Register webhooks</button>
+        <p class="muted small">Sends sms:received, sms:sent, sms:delivered and sms:failed to <code>${esc(setup.webhook_url || "")}</code>. Safe to press again; it only adds missing ones.</p>`}
+      </div>`;
+    app.querySelectorAll("[data-sms-read]").forEach((b) => b.onclick = async () => {
+      const { error: e1 } = await sb.from("sms_messages").update({ read_at: new Date().toISOString() }).eq("id", b.dataset.smsRead);
+      if (e1) return fail(e1);
+      refreshTextCount(); textsView();
+    });
+    const reg = document.getElementById("sms-register");
+    if (reg) reg.onclick = async () => {
+      reg.disabled = true; reg.textContent = "Registering…";
+      const r = await smsApi("setup", { action: "register" });
+      toast(r.ok ? (r.added.length ? `Webhooks added: ${r.added.join(", ")}` : "All 4 webhooks were already there") : r.error, !r.ok);
+      textsView();
+    };
+  }
+
   // ---------- roles (2026-11-08): admin (Johnathon) vs employee ----------
   // Employees can't see Campaigns-Me, Campaigns-Dad, Designs, Deals, Pipeline or Team. The database blocks those tables for them too (roles.sql).
-  const ADMIN_ROUTE = /^\/(campaigns(-me)?(\/|$)|designs$|deals(\/|$)|pipeline$|team$|analytics$)/;
+  const ADMIN_ROUTE = /^\/(campaigns(-me)?(\/|$)|designs$|deals(\/|$)|pipeline$|team$|analytics$|texts$)/;
   let role = null, roleFor = null;
   async function loadRole(s) {
     if (roleFor === s.user.id && role) return role;
@@ -324,6 +462,7 @@
         ${due ? `<span class="due ${late ? "late" : ""}">${late ? "Overdue · " : "Due "}${fmtDate(l.follow_up_date)}</span>` : ""}
       </div>
       ${extra}
+      ${isAdmin() && usable(l.owner_phone) ? `<button type="button" class="trow-text" data-text-lead="${l.id}" aria-label="Text ${esc(l.business_name)}" title="Text from your cell">💬</button>` : ""}
       ${usable(phone) ? `<a class="trow-phone" href="tel:${esc(tel(phone))}"${callAt(l.id, l.business_name)}><svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1z"/></svg>${esc(phone)}</a>` : '<span class="trow-nophone">No phone</span>'}
     </div>`;
   }
@@ -1231,7 +1370,8 @@
         </div>
         <div class="actions">
           ${phones.map(([p, t]) => `<a class="btn" href="tel:${esc(tel(p))}"${callAt(l.id, l.business_name)}>📞 ${esc(t)} · ${esc(p)}</a>`).join("")}
-          ${phones.length ? `<a class="btn ghost" href="sms:${esc(tel(phones[0][0]))}" title="Opens your messaging app (Phone Link). The CRM never sends a text itself.">💬 Text ${esc(phones[0][0])}</a>` : ""}
+          ${isAdmin() && usable(l.owner_phone) ? `<button type="button" class="btn ghost" data-text-lead="${l.id}">💬 Text ${esc(l.owner_phone)}</button>`
+            : phones.length ? `<a class="btn ghost" href="sms:${esc(tel(phones[0][0]))}" title="Opens your messaging app (Phone Link).">💬 Text ${esc(phones[0][0])}</a>` : ""}
           ${usable(l.owner_email) ? `<a class="btn ghost" href="mailto:${esc(l.owner_email)}">✉ ${esc(l.owner_email)}${l.owner_email_status === "Inferred" ? " (inferred)" : ""}</a>` : ""}
           ${!usable(l.owner_email) || l.owner_email_status === "Inferred" ? `<button type="button" class="btn ghost" id="add-email-btn">＋ ${usable(l.owner_email) ? "Add confirmed email" : "Add email"}</button>
           <form id="add-email" class="add-email" hidden>
@@ -1767,6 +1907,7 @@ ${links()}`;
     document.body.classList.toggle("full", h === "/designs");
     app.innerHTML = `<p class="muted pad">Loading…</p>`;
     refreshInquiryCount().catch(() => {});
+    refreshTextCount();
     await Promise.all([loadMeetingLeads().catch(() => {}), loadCallCounts().catch(() => {})]);
     try {
       if (h === "/") await todayView();
@@ -1777,6 +1918,7 @@ ${links()}`;
       else if (h === "/analytics") await window.AWDAnalytics.view({ sb, app, esc, toast, fail });
       else if (h === "/deals" || h.startsWith("/deals/new/")) await dealsView(h.startsWith("/deals/new/") ? h.slice(11) : null);
       else if (h === "/tasks") await tasksView();
+      else if (h === "/texts") await textsView();
       else if (h === "/designs") designsView();
       else if (/^\/campaigns(-me)?(\/|$)/.test(h)) await window.AWDCampaigns.view(h, { sb, app, esc, toast, fail, fmtTime, session });
       else if (h === "/script") scriptView();
