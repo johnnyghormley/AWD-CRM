@@ -346,6 +346,10 @@
         ${setup.offline ? `<p class="muted small">The server couldn't be reached.</p>` : `
         <p class="small">${yes(setup.gateway)} Gateway login (<code>SMSGATE_USERNAME</code>, <code>SMSGATE_PASSWORD</code>) · ${yes(setup.signing)} <code>SMSGATE_SIGNING_KEY</code> · ${yes(setup.db)} <code>SUPABASE_SECRET_KEY</code> · ${error ? "❌" : "✅"} <code>sms.sql</code></p>
         <p class="small">Webhooks registered: ${hooks.length ? hooks.map((w) => esc(w.event)).join(", ") : "none yet"}${setup.error ? ` <span class="pill warn">${esc(setup.error)}</span>` : ""}</p>
+        ${setup.gateway ? `<p class="small">Phones linked to this gateway login: ${setup.devices_error ? `<span class="pill warn">${esc(setup.devices_error)}</span>`
+          : (setup.devices || []).length ? setup.devices.map((d) => `<b>${esc(d.name || "phone")}</b> (…${esc(d.id_end)})${d.deleted ? " <span class=\"pill warn\">removed</span>" : ""} · last seen ${d.last_seen ? esc(fmtTime(d.last_seen)) : "never"}`).join("; ")
+          : `<span class="pill warn">none: the phone isn't linked to this login</span>`}</p>` : ""}
+        <div id="sms-stuck"></div>
         <button type="button" class="btn" id="sms-register" ${setup.missing && setup.missing.length ? "disabled" : ""}>Register webhooks</button>
         <p class="muted small">Sends sms:received, sms:sent, sms:delivered and sms:failed to <code>${esc(setup.webhook_url || "")}</code>. Safe to press again; it only adds missing ones.</p>`}
       </div>`;
@@ -354,6 +358,14 @@
       if (e1) return fail(e1);
       refreshTextCount(); textsView();
     });
+    // Texts still "Sending…" after a minute: ask the gateway what it knows (read-only; nothing is resent).
+    const stuck = (msgs || []).filter((m) => m.direction === "out" && m.status === "pending" && Date.now() - new Date(m.created_at) > 60000).slice(0, 5);
+    if (stuck.length && setup.gateway) {
+      const box = document.getElementById("sms-stuck");
+      const rows = await Promise.all(stuck.map(async (m) => ({ m, g: (await smsApi(`setup?message=${m.id}`)).message || {} })));
+      if (box && document.body.contains(box)) box.innerHTML = `<p class="small"><b>Stuck on Sending…</b> (what the gateway says):</p><ul class="small">${rows.map(({ m, g }) =>
+        `<li>${esc((m.leads && m.leads.business_name) || m.phone)} · ${esc(smsTime(m.created_at))}: ${g.error ? `<span class="pill warn">${esc(g.error)}</span>` : `gateway state <b>${esc(g.state || "unknown")}</b>${g.states ? ` (${Object.entries(g.states).map(([k, v]) => `${esc(k)} ${esc(fmtTime(v))}`).join(", ")})` : ""}`}</li>`).join("")}</ul>`;
+    }
     const reg = document.getElementById("sms-register");
     if (reg) reg.onclick = async () => {
       reg.disabled = true; reg.textContent = "Registering…";

@@ -14,6 +14,17 @@ module.exports = async (req, res) => {
     if (out.gateway) {
       try { out.webhooks = ours(await sms.gateway("/webhooks")).map((w) => ({ id: w.id, event: w.event })); }
       catch (e) { out.error = e.message; }
+      // Read-only checks (2026-11-19): which phones are linked to this gateway account and when each was last seen,
+      // and (?message=<id>) what the gateway says about one text. Nothing is sent or changed.
+      try {
+        out.devices = (await sms.gateway("/devices") || []).map((d) => ({ id_end: String(d.id || "").slice(-4), name: d.name || null,
+          last_seen: d.lastSeen || d.last_seen || null, created: d.createdAt || null, updated: d.updatedAt || null, deleted: d.deletedAt || null }));
+      } catch (e) { out.devices_error = e.message; }
+      const mid = new URL(req.url, "http://x").searchParams.get("message");
+      if (mid && /^[0-9a-f-]{36}$/i.test(mid)) {
+        try { const m = await sms.gateway(`/messages/${mid}`); out.message = { id: mid, state: m && m.state, states: m && m.states, recipients: m && m.recipients, device_end: m && m.deviceId ? String(m.deviceId).slice(-4) : null }; }
+        catch (e) { out.message = { id: mid, error: e.message }; }
+      }
     }
     return send(res, 200, out);
   }
