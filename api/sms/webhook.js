@@ -47,6 +47,12 @@ module.exports = async (req, res) => {
       }
       await sms.sdb("sms_messages", { method: "POST", body: { lead_id: lead ? lead.id : null, direction: "in", phone, body: text, status: "received", gateway_message_id: gid || null }, prefer: "return=minimal" });
       if (lead) await sms.sdb("activities", { method: "POST", body: { lead_id: lead.id, kind: "Text", note: `Text received: ${text}` }, prefer: "return=minimal" });
+      // STOP-type reply: log the opt-out on the lead (the CRM then turns Send off for them). START opts back in.
+      if (lead && (sms.OPT_OUT.test(text) || sms.OPT_IN.test(text))) {
+        const out = sms.OPT_OUT.test(text);
+        await sms.sdb("activities", { method: "POST", body: { lead_id: lead.id, kind: "Note", outcome: out ? "Opted out of texts" : "Opted back in to texts",
+          note: out ? `Opted out of texts: replied "${text.trim()}" from ${phone}. Don't text this lead again.` : `Opted back in to texts: replied "${text.trim()}" from ${phone}.` }, prefer: "return=minimal" });
+      }
       return send(res, 200, { ok: true, matched: !!lead });
     }
     send(res, 200, { ok: true, ignored: ev.event || "unknown" });

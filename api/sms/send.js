@@ -24,6 +24,11 @@ module.exports = async (req, res) => {
   if (!lead) return send(res, 404, { error: "Lead not found" });
   const phone = sms.e164(lead.owner_phone);
   if (!phone) return send(res, 400, { error: "This lead has no usable owner phone." });
+  // They replied STOP: never text them again (unless they reply START).
+  try {
+    const incoming = await db(token, `sms_messages?lead_id=eq.${lead.id}&direction=eq.in&select=body,created_at&order=created_at.asc&limit=1000`);
+    if (sms.optedOut(incoming)) return send(res, 403, { error: "They opted out of texts (replied STOP). Not sent.", code: "opted_out" });
+  } catch (e) { return send(res, 500, { error: /sms_messages/.test(e.message) ? "Texts aren't set up in the database yet: run sms.sql in Supabase." : e.message }); }
 
   // Save it first as pending; our row id doubles as the gateway's message id so status webhooks find the row.
   const id = crypto.randomUUID();

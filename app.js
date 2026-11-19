@@ -209,6 +209,19 @@
     setPendingCall(null); drawCallBar();
     toast(`Call logged: ${l.business_name} · ${outcome}`);
     route();
+    if (outcome === "Voicemail" && isAdmin() && usable(l.owner_phone)) offerVoicemailText(l);
+  }
+  // After a Voicemail is logged: one button that opens the Text drawer with the follow-up draft. It does not send.
+  function offerVoicemailText(l) {
+    const old = document.querySelector(".vmbox"); if (old) old.remove();
+    const b = document.createElement("div");
+    b.className = "callbox vmbox"; b.setAttribute("role", "dialog"); b.setAttribute("aria-label", "Voicemail follow-up");
+    b.innerHTML = `<span class="callbox-txt">Voicemail logged for <b>${esc(l.business_name)}</b></span>
+      <button type="button" class="btn small" data-vm-text>Text them the voicemail follow-up</button><button type="button" class="callbox-x" aria-label="Close">×</button>`;
+    document.body.appendChild(b);
+    b.querySelector(".callbox-x").onclick = () => b.remove();
+    b.querySelector("[data-vm-text]").onclick = () => { b.remove(); openTexts(l.id); };
+    setTimeout(() => b.remove(), 120000);
   }
   // Tapping a lead's call link starts the timer (the link itself still opens Phone Link / the phone app).
   document.addEventListener("click", (e) => {
@@ -251,6 +264,25 @@
   const smsTime = (t) => { const d = new Date(t); return d.toDateString() === new Date().toDateString() ? clock(t) : d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); };
   const segs = (t) => { const n = t.length, uni = /[^\x00-\x7F]/.test(t); return n === 0 ? 0 : uni ? (n <= 70 ? 1 : Math.ceil(n / 67)) : (n <= 160 ? 1 : Math.ceil(n / 153)); };
 
+  // Voicemail follow-up draft (2026-11-19, Johnathon). Only ever pre-filled in the box for him to read, edit and send himself.
+  // Text A when the lead has no website (same "no website" rule as the weekly email in campaigns.js), Text W otherwise.
+  const noSite = (w) => !w || /^(none|n\/a|not found|unknown|-)/i.test(String(w).trim());
+  function firstName(owner) {
+    if (!usable(owner)) return "";
+    const w = String(owner).replace(/\([^)]*\)/g, " ").split(/[\s,]+/).map((x) => x.replace(/[^A-Za-z'’-]/g, "")).find((x) => x.replace(/[^A-Za-z]/g, "").length > 1);
+    return w ? w[0].toUpperCase() + w.slice(1) : "";
+  }
+  function voicemailDraft(l) {
+    const fn = firstName(l.owner_name), hi = fn ? `Hey ${fn}, this is Johnny` : "Hey, this is Johnny";
+    const biz = String(l.business_name || "your business").trim();
+    return noSite(l.website)
+      ? `${hi} with Affordable Web Designs, I left you a voicemail. I was looking up ${biz} on Google and saw you don't have a website. I'm a fresh IT grad and started my own web agency for cheap. Kinda random, but I went ahead and built you one. Do you wanna see it? Reply STOP to opt out.`
+      : `${hi} with Affordable Web Designs, I left you a voicemail. I was looking up ${biz} on Google and checked out your website. I'm a fresh IT grad and started my own web agency for cheap. Kinda random, but I went ahead and built you a fresh, modern version of it. Do you wanna see it? Reply STOP to opt out.`;
+  }
+  // Opt-out: a reply that is only STOP / UNSUBSCRIBE / CANCEL / END / QUIT (any case). START or UNSTOP afterwards opts back in.
+  const OPT_OUT = /^\s*(stop|unsubscribe|cancel|end|quit)\s*[.!]*\s*$/i, OPT_IN = /^\s*(start|unstop)\s*[.!]*\s*$/i;
+  const optedOut = (msgs) => { let out = false; (msgs || []).filter((m) => m.direction === "in").forEach((m) => { if (OPT_OUT.test(m.body)) out = true; else if (OPT_IN.test(m.body)) out = false; }); return out; };
+
   let textBox = null, textTimer = null;
   function closeTexts() { clearInterval(textTimer); textTimer = null; if (textBox) textBox.remove(); textBox = null; }
   async function openTexts(leadId) {
@@ -259,7 +291,7 @@
     box.className = "textbox"; box.setAttribute("role", "dialog"); box.setAttribute("aria-label", "Text conversation");
     box.innerHTML = `<p class="muted pad">Loading…</p>`;
     document.body.appendChild(box);
-    const [{ data: l }, setup] = await Promise.all([sb.from("leads").select("id, business_name, owner_name, owner_phone").eq("id", leadId).single(), smsSetup()]);
+    const [{ data: l }, setup] = await Promise.all([sb.from("leads").select("id, business_name, owner_name, owner_phone, website").eq("id", leadId).single(), smsSetup()]);
     if (textBox !== box || !l) return;
     const ready = !setup.offline && !!setup.gateway;
     box.innerHTML = `
@@ -269,16 +301,27 @@
       <div class="textbox-thread" aria-live="polite"></div>
       ${ready ? "" : `<p class="textbox-note">Texting from the CRM isn't set up yet${setup.missing && setup.missing.length ? ` (Vercel still needs ${setup.missing.map(esc).join(", ")})` : ""}. <a href="sms:${esc(tel(l.owner_phone))}">Open in your messaging app</a> instead.</p>`}
       <form class="textbox-form">
+        <p class="textbox-optout" data-text-optout hidden>🚫 Opted out of texts: they replied STOP. Send is turned off for this lead.</p>
+        <p class="muted small textbox-prev" data-text-prev hidden></p>
         <textarea name="body" rows="3" maxlength="1000" placeholder="Text ${esc(usable(l.owner_name) ? l.owner_name.split(" ")[0] : l.business_name)}…" aria-label="Message" ${ready ? "" : "disabled"}></textarea>
         <div class="textbox-row"><span class="muted small" data-text-count>One text to ${esc(l.owner_phone || "")}. Sent only when you press Send.</span><button class="btn" ${ready ? "" : "disabled"}>Send</button></div>
       </form>`;
     const thread = box.querySelector(".textbox-thread"), form = box.querySelector("form"), ta = form.elements.body, counter = box.querySelector("[data-text-count]");
     box.querySelector("[data-text-close]").onclick = closeTexts;
-    let last = "";
+    const sendBtn = form.querySelector("button"), optNote = box.querySelector("[data-text-optout]"), prevNote = box.querySelector("[data-text-prev]");
+    let last = "", optOut = false, filled = false;
     const load = async () => {
       const { data: msgs, error } = await sb.from("sms_messages").select("*").eq("lead_id", leadId).order("created_at", { ascending: true }).limit(500);
       if (textBox !== box) return;
       if (error) { thread.innerHTML = `<p class="textbox-note">${/sms_messages/.test(error.message) ? "Texts aren't set up in the database yet: run <code>sms.sql</code> in Supabase." : esc(error.message)}</p>`; return; }
+      // Replied STOP: no more texts to this lead (the server refuses too).
+      optOut = optedOut(msgs);
+      optNote.hidden = !optOut;
+      sendBtn.disabled = !ready || optOut; ta.disabled = !ready || optOut;
+      const sentBefore = (msgs || []).filter((m) => m.direction === "out");
+      if (sentBefore.length) { prevNote.textContent = `Already texted on ${fmtDate(localDay(sentBefore[sentBefore.length - 1].created_at))}${sentBefore.length > 1 ? ` (${sentBefore.length} texts so far)` : ""}.`; prevNote.hidden = false; }
+      // First load only: an empty box gets the voicemail follow-up draft. Never overwrites what he's typed.
+      if (!filled) { filled = true; if (ready && !optOut && !ta.value.trim()) { ta.value = voicemailDraft(l); if (ta.oninput) ta.oninput(); } }
       const sig = JSON.stringify((msgs || []).map((m) => [m.id, m.status]));
       if (sig !== last) {
         last = sig;
@@ -294,21 +337,22 @@
         refreshTextCount();
       }
     };
-    await load();
-    textTimer = setInterval(load, 10000); // new replies and delivery updates while it's open
     ta.oninput = () => { const t = ta.value.trim(); counter.textContent = t ? `${t.length} characters · ${segs(t)} text${segs(t) === 1 ? "" : "s"} · one recipient` : `One text to ${l.owner_phone || ""}. Sent only when you press Send.`; };
     ta.onkeydown = (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) form.requestSubmit(); };
+    await load();
+    textTimer = setInterval(load, 10000); // new replies and delivery updates while it's open
     form.onsubmit = async (e) => {
       e.preventDefault();
       const body = ta.value.trim();
       if (!body) return toast("Type a message first", true);
-      const btn = form.querySelector("button"); btn.disabled = true; btn.textContent = "Sending…";
+      if (optOut) return toast("They opted out of texts", true);
+      sendBtn.disabled = true; sendBtn.textContent = "Sending…";
       const r = await smsApi("send", { lead_id: leadId, body });
-      btn.disabled = false; btn.textContent = "Send";
+      sendBtn.disabled = !ready || optOut; sendBtn.textContent = "Send";
       if (r.ok) { ta.value = ""; ta.oninput(); toast("Text sent to the gateway"); } else toast(r.error || "Text not sent", true);
       last = ""; await load();
     };
-    if (ready) ta.focus();
+    if (ready && !optOut) { ta.focus(); ta.setSelectionRange(0, 0); ta.scrollTop = 0; }
   }
   document.addEventListener("click", (e) => { const b = e.target.closest && e.target.closest("[data-text-lead]"); if (b) { e.preventDefault(); e.stopPropagation(); openTexts(b.dataset.textLead); } }, true);
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && textBox) closeTexts(); });

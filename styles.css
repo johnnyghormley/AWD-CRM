@@ -713,3 +713,10 @@ details.fold > summary .sub-h { flex: 1; }
 :root[data-theme="dark"] .textbox-note { background: rgba(250,204,21,.14); color: #FDE68A; }
 :root[data-theme="dark"] .trow-text { background: var(--s2); border-color: #3A4656; }
 :root[data-theme="dark"] .pill.text-unread { background: rgba(96,165,250,.2); color: #BFDBFE; }
+
+/* Voicemail follow-up draft + opt-out (2026-11-19). */
+.textbox-optout { margin: 0; padding: 8px 10px; border-radius: 8px; font-size: 13px; font-weight: 600; background: #FEE2E2; color: #991B1B; }
+.textbox-prev { margin: 0; }
+.vmbox { flex-wrap: wrap; }
+.vmbox .callbox-txt { white-space: normal; }
+:root[data-theme="dark"] .textbox-optout { background: rgba(248,113,113,.2); color: #FCA5A5; }

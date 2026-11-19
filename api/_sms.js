@@ -57,4 +57,9 @@ async function sdb(path, { method = "GET", body, prefer } = {}) {
   return text ? JSON.parse(text) : null;
 }
 
-module.exports = { API, WEBHOOK_URL, EVENTS, has, missing, usable, e164, gateway, verifySignature, sdb };
+// Opt-out (2026-11-19): a reply that is only STOP / UNSUBSCRIBE / CANCEL / END / QUIT (any case); START / UNSTOP opts back in.
+// Same rule as optedOut() in app.js. The latest of those replies wins.
+const OPT_OUT = /^\s*(stop|unsubscribe|cancel|end|quit)\s*[.!]*\s*$/i, OPT_IN = /^\s*(start|unstop)\s*[.!]*\s*$/i;
+const optedOut = (incoming) => { let out = false; (incoming || []).forEach((m) => { if (OPT_OUT.test(m.body)) out = true; else if (OPT_IN.test(m.body)) out = false; }); return out; };
+
+module.exports = { API, WEBHOOK_URL, EVENTS, has, missing, usable, e164, gateway, verifySignature, sdb, OPT_OUT, OPT_IN, optedOut };
