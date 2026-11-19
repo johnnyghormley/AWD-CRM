@@ -54,7 +54,16 @@
   const today = () => new Date().toLocaleDateString("en-CA");
   const fmtDate = (d) => d ? new Date(d + (d.length === 10 ? "T12:00:00" : "")).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "";
   const fmtTime = (d) => new Date(d).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
-  const tel = (p) => (p || "").replace(/[^\d+]/g, "");
+  // Phone number for tel: / sms: links, in E.164 (+1XXXXXXXXXX) so Windows Phone Link and phones dial it right (2026-11-19).
+  // An extension ("x12", "ext. 12") is dropped; anything that isn't a US number is passed through as digits.
+  const tel = (p) => {
+    const s = String(p || "").replace(/\s*(x|ext\.?|extension)\s*\d+\s*$/i, "").trim(), d = s.replace(/\D/g, "");
+    if (d.length === 10) return "+1" + d;
+    if (d.length === 11 && d[0] === "1") return "+" + d;
+    return (s.startsWith("+") ? "+" : "") + d;
+  };
+  // Marks a tel: link as a call to a lead, so the after-call panel can log it (see "Click to call" below).
+  const callAt = (leadId, name) => leadId ? ` data-call-lead="${esc(leadId)}" data-call-name="${esc(name || "")}"` : "";
   // Phone digits only, without a leading US "1", so (832) 496-3061, 832.496.3061 and +1 832 496 3061 all match.
   const digits = (p) => String(p || "").replace(/\D/g, "").replace(/^1(?=\d{10}$)/, "");
   const LEAD_PHONES = [["owner_phone", "Owner phone"], ["business_phone", "Business phone"]];
@@ -116,6 +125,105 @@
       try { await navigator.clipboard.writeText(b.dataset.copyLink); toast("Meeting link copied"); } catch { prompt("Copy the meeting link:", b.dataset.copyLink); }
     });
   }
+
+  // ---------- Click to call + after-call log (2026-11-19, Johnathon) ----------
+  // Calls go out through his PC (Windows Phone Link) or phone: the CRM only opens tel: links, no calling service.
+  // Tapping a lead's phone link (marked with callAt) notes the start time and shows a small bar. When the CRM tab gets
+  // focus back (or he taps Log call) the bar opens the after-call panel: outcome, follow-up date, notes. Saving logs a
+  // Call activity with the rough length and updates the lead like the Log activity form does. Dismiss saves nothing.
+  const CALL_OUTCOMES = ["Answered", "Voicemail", "No answer", "Wrong number", "Not interested", "Call back"];
+  const CALL_KEY = "awd_call";
+  const pendingCall = () => { try { return JSON.parse(sessionStorage.getItem(CALL_KEY) || "null"); } catch { return null; } };
+  const setPendingCall = (c) => { try { c ? sessionStorage.setItem(CALL_KEY, JSON.stringify(c)) : sessionStorage.removeItem(CALL_KEY); } catch {} };
+  const clock = (t) => new Date(t).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  let callBox = null;
+  function drawCallBar() {
+    const c = pendingCall();
+    if (!c) { if (callBox) callBox.remove(); callBox = null; return; }
+    if (!callBox) { callBox = document.createElement("div"); callBox.className = "callbox"; callBox.setAttribute("role", "dialog"); callBox.setAttribute("aria-label", "After-call log"); document.body.appendChild(callBox); }
+    if (!c.open) {
+      callBox.classList.remove("open");
+      callBox.innerHTML = `<span class="callbox-dot" aria-hidden="true"></span><span class="callbox-txt">Calling <b>${esc(c.name || "lead")}</b> · since ${clock(c.start)}</span>
+        <button type="button" class="btn small" data-call-open>Log call</button><button type="button" class="callbox-x" data-call-dismiss aria-label="Dismiss without logging">×</button>`;
+    } else {
+      callBox.classList.add("open");
+      callBox.innerHTML = `<form class="callbox-form">
+        <div class="callbox-head"><b>📞 Log call · ${esc(c.name || "lead")}</b><button type="button" class="callbox-x" data-call-dismiss aria-label="Dismiss without logging">×</button></div>
+        <p class="muted small">${esc(c.phone || "")} · started ${clock(c.start)}${c.status ? ` · now <b>${esc(c.status)}</b>` : ""}</p>
+        <div class="callbox-outs" role="radiogroup" aria-label="Outcome">${CALL_OUTCOMES.map((o) => `<label class="callbox-out"><input type="radio" name="outcome" value="${o}" required><span>${o}</span></label>`).join("")}</div>
+        <label>Follow up on <span class="muted small">(optional; needed for Call back)</span><input type="date" name="fu" value="${esc(c.fu || "")}"></label>
+        <label>Notes<textarea name="note" rows="3" placeholder="What did they say? What's next?"></textarea></label>
+        <div class="row-btns"><button class="btn">Save call</button><button type="button" class="btn ghost" data-call-dismiss>Dismiss</button></div>
+      </form>`;
+      const f = callBox.querySelector("form");
+      f.onsubmit = (e) => { e.preventDefault(); saveCall(f); };
+      f.querySelectorAll('[name="outcome"]').forEach((r) => r.onchange = () => {
+        if (r.value === "Call back" && !f.elements.fu.value) { const d = new Date(); d.setDate(d.getDate() + 1); f.elements.fu.value = d.toLocaleDateString("en-CA"); }
+      });
+    }
+    callBox.querySelectorAll("[data-call-dismiss]").forEach((b) => b.onclick = () => { setPendingCall(null); drawCallBar(); toast("Call not logged"); });
+    const o = callBox.querySelector("[data-call-open]");
+    if (o) o.onclick = openCallPanel;
+  }
+  async function openCallPanel() {
+    const c = pendingCall();
+    if (!c || c.open) return;
+    // Current status and follow-up date, so the panel starts from what's saved.
+    const { data: l } = await sb.from("leads").select("call_status, follow_up_date").eq("id", c.lead).maybeSingle();
+    setPendingCall({ ...c, open: true, status: l && l.call_status, fu: l && l.follow_up_date });
+    drawCallBar();
+  }
+  async function saveCall(f) {
+    const c = pendingCall();
+    if (!c) return;
+    const outcome = (f.querySelector('[name="outcome"]:checked') || {}).value;
+    let fu = f.elements.fu.value || null;
+    const notes = f.elements.note.value.trim();
+    if (!outcome) return toast("Pick how the call went", true);
+    if (outcome === "Call back" && !fu) return toast("Pick the call-back date", true);
+    const btn = f.querySelector("button.btn"); btn.disabled = true; btn.textContent = "Saving…";
+    const [{ data: l, error }, { count }] = await Promise.all([
+      sb.from("leads").select("*").eq("id", c.lead).single(),
+      sb.from("activities").select("id", { count: "exact", head: true }).eq("lead_id", c.lead).eq("kind", "Call")
+    ]);
+    if (error) { btn.disabled = false; btn.textContent = "Save call"; return fail(error); }
+    // Same rules as the Log activity form: a logged call never leaves a lead New; Not interested / Call back set
+    // those statuses; the 3rd call moves a lead with an email to Only email, or sets the next call 30 days out.
+    let status = l.call_status;
+    if (outcome === "Not interested") status = "Not Interested";
+    else if (outcome === "Call back") status = "Callback";
+    else if (status === "New") status = "Called";
+    const calls = (count || 0) + 1;
+    let outLine = "";
+    if (calls >= CALLS_MAX && !CLOSED.includes(status)) {
+      if (usable(l.owner_email)) outLine = `Called ${calls} times: moved to Only email (weekly email)`;
+      else { const d = new Date(); d.setDate(d.getDate() + 30); fu = d.toLocaleDateString("en-CA"); outLine = `Called ${calls} times, no email: Abby rechecks for one. Next call ${fu}`; }
+    }
+    const now = Date.now(), mins = Math.round((now - c.start) / 60000);
+    const note = [`Call from the CRM${c.phone ? ` to ${c.phone}` : ""}: ${clock(c.start)}–${clock(now)}, about ${mins < 1 ? "under a minute" : mins + " min"}`,
+      notes, status !== l.call_status ? `Status: ${l.call_status} → ${status}` : "", fu !== (l.follow_up_date || null) ? `Follow-up: ${fu ? fmtDate(fu) : "cleared"}` : "", outLine].filter(Boolean).join("\n");
+    const { error: e1 } = await sb.from("activities").insert({ lead_id: c.lead, kind: "Call", outcome, note });
+    if (e1) { btn.disabled = false; btn.textContent = "Save call"; return fail(e1); }
+    const { error: e2 } = await sb.from("leads").update({ call_status: status, follow_up_date: fu }).eq("id", c.lead);
+    if (e2) { btn.disabled = false; btn.textContent = "Save call"; return fail(e2); }
+    setPendingCall(null); drawCallBar();
+    toast(`Call logged: ${l.business_name} · ${outcome}`);
+    route();
+  }
+  // Tapping a lead's call link starts the timer (the link itself still opens Phone Link / the phone app).
+  document.addEventListener("click", (e) => {
+    const a = e.target.closest && e.target.closest("a[data-call-lead]");
+    if (!a) return;
+    const p = pendingCall();
+    if (p && p.open && p.lead !== a.dataset.callLead && !confirm(`You haven't logged the call to ${p.name}. Start a new call anyway?`)) { e.preventDefault(); return; }
+    setPendingCall({ lead: a.dataset.callLead, name: a.dataset.callName, phone: a.textContent.replace(/[^\d()+\-. ]/g, "").trim() || a.getAttribute("href").slice(4), start: Date.now(), open: false });
+    drawCallBar();
+  });
+  // Coming back to the CRM after the call opens the panel (a few seconds' grace so the click itself doesn't).
+  const backToCrm = () => { const c = pendingCall(); if (c && !c.open && document.visibilityState === "visible" && Date.now() - c.start > 4000) openCallPanel(); };
+  window.addEventListener("focus", backToCrm);
+  document.addEventListener("visibilitychange", backToCrm);
+  drawCallBar(); // a call started before a reload is still waiting to be logged
 
   // ---------- roles (2026-11-08): admin (Johnathon) vs employee ----------
   // Employees can't see Campaigns-Me, Campaigns-Dad, Designs, Deals, Pipeline or Team. The database blocks those tables for them too (roles.sql).
@@ -216,7 +324,7 @@
         ${due ? `<span class="due ${late ? "late" : ""}">${late ? "Overdue · " : "Due "}${fmtDate(l.follow_up_date)}</span>` : ""}
       </div>
       ${extra}
-      ${usable(phone) ? `<a class="trow-phone" href="tel:${esc(tel(phone))}"><svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1z"/></svg>${esc(phone)}</a>` : '<span class="trow-nophone">No phone</span>'}
+      ${usable(phone) ? `<a class="trow-phone" href="tel:${esc(tel(phone))}"${callAt(l.id, l.business_name)}><svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1z"/></svg>${esc(phone)}</a>` : '<span class="trow-nophone">No phone</span>'}
     </div>`;
   }
 
@@ -640,7 +748,7 @@
         </div>
         <div class="muted">${esc([l.owner_name, l.owner_title, l.trade, l.city].filter(usable).join(" · ")) || "No contact name"}</div>
         <div class="sres-actions">
-          ${phones.map(([k, t]) => `<a class="btn small" href="tel:${esc(tel(l[k]))}">📞 ${esc(t)} · ${esc(l[k])}</a>`).join("")}
+          ${phones.map(([k, t]) => `<a class="btn small" href="tel:${esc(tel(l[k]))}"${callAt(l.id, l.business_name)}>📞 ${esc(t)} · ${esc(l[k])}</a>`).join("")}
           ${usable(l.owner_email) ? `<a class="btn ghost small" href="mailto:${esc(l.owner_email)}">✉ ${esc(l.owner_email)}</a>` : ""}
           <a class="btn ghost small" href="#/lead/${l.id}">Open lead</a>
         </div>
@@ -714,7 +822,7 @@
         ${l.lead_status === "Missing Info" ? `<span class="trow-missing">Missing info</span>` : ""}
         ${l.follow_up_date ? `<span class="due ${late ? "late" : ""}">${late ? "Overdue · " : "Follow up "}${fmtDate(l.follow_up_date)}</span>` : ""}
         <div class="bcard-foot">
-          ${usable(phone) ? `<a class="bcard-call" href="tel:${esc(tel(phone))}">📞 ${esc(phone)}</a>` : `<span class="muted small">No phone</span>`}
+          ${usable(phone) ? `<a class="bcard-call" href="tel:${esc(tel(phone))}"${callAt(l.id, l.business_name)}>📞 ${esc(phone)}</a>` : `<span class="muted small">No phone</span>`}
           <select class="bmove" data-id="${l.id}" aria-label="Move to">${PIPE.map((s) => `<option ${s === l.call_status ? "selected" : ""}>${s}</option>`).join("")}</select>
         </div>
       </div>`;
@@ -853,7 +961,7 @@
         ${usable(d.next_step) ? `<span class="small">Next: ${esc(d.next_step)}</span>` : ""}
         ${d.close_date ? `<span class="due ${late ? "late" : ""}">${late ? "Overdue · " : "Close by "}${fmtDate(d.close_date)}</span>` : ""}
         <div class="bcard-foot">
-          ${usable(phone) ? `<a class="bcard-call" href="tel:${esc(tel(phone))}">📞 ${esc(phone)}</a>` : `<span class="muted small">No phone</span>`}
+          ${usable(phone) ? `<a class="bcard-call" href="tel:${esc(tel(phone))}"${callAt(d.lead_id, l.business_name)}>📞 ${esc(phone)}</a>` : `<span class="muted small">No phone</span>`}
           <select class="bmove" data-id="${d.id}" aria-label="Move to">${DEAL_STAGES.map((s) => `<option ${s === d.stage ? "selected" : ""}>${s}</option>`).join("")}</select>
         </div>
         <button type="button" class="linkbtn small" data-deal-edit="${d.id}">Edit</button>
@@ -969,7 +1077,7 @@
               <td><a href="#/lead/${x.lead}">${esc(x.who)}</a>${usable(x.contact) ? `<div class="muted small">${esc(x.contact.split(" (")[0])}</div>` : ""}</td>
               <td><span class="agenda-tag ${x.type}">${x.type === "meet" ? "Meeting" : "Follow-up"}</span></td>
               <td class="${late ? "late" : ""}">${x.type === "fu" ? `<input type="date" class="due-in" data-resched="${x.id}" value="${esc(x.day)}" aria-label="Due date">` : fmtDate(x.day)}${late ? `<div class="small">Overdue</div>` : ""}</td>
-              <td>${usable(x.phone) ? `<a class="tbl-call" href="tel:${esc(tel(x.phone))}">${esc(x.phone)}</a>` : `<span class="muted small">—</span>`}</td>
+              <td>${usable(x.phone) ? `<a class="tbl-call" href="tel:${esc(tel(x.phone))}"${callAt(x.lead, x.who)}>${esc(x.phone)}</a>` : `<span class="muted small">—</span>`}</td>
             </tr>`;
           }).join("") || `<tr><td colspan="6" class="muted pad">${taskTab === "due" ? "Nothing due today. Nice." : "No tasks here."}</td></tr>`}</tbody>
         </table></div>
@@ -1092,7 +1200,7 @@
     const prop = (label, v) => `<div class="prop"><dt>${label}</dt><dd>${v || '<span class="muted">—</span>'}</dd></div>`;
     const txt = (v) => usable(v) ? esc(v) : "";
     const link = (u) => usable(u) && /^\S+\.\S+$/.test(u.trim()) ? `<a href="${esc(/^https?:/i.test(u) ? u : "https://" + u)}" target="_blank" rel="noopener">${esc(u.replace(/^https?:\/\/(www\.)?/i, "").replace(/\/$/, ""))}</a>` : "";
-    const telLink = (p) => usable(p) ? `<a href="tel:${esc(tel(p))}">${esc(p)}</a>` : "";
+    const telLink = (p) => usable(p) ? `<a href="tel:${esc(tel(p))}"${callAt(l.id, l.business_name)}>${esc(p)}</a>` : "";
     app.innerHTML = `
       <div class="crumbs"><a href="#/leads">Leads</a> <span>›</span> ${esc(l.business_name)}</div>
       <div class="record">
@@ -1115,14 +1223,15 @@
         <div class="quick">
           <button type="button" data-quick="note"><i>📝</i>Note</button>
           ${usable(l.owner_email) ? `<a href="mailto:${esc(l.owner_email)}"><i>✉️</i>Email</a>` : ""}
-          ${phones.length ? `<a href="tel:${esc(tel(phones[0][0]))}"><i>📞</i>Call</a>` : ""}
+          ${phones.length ? `<a href="tel:${esc(tel(phones[0][0]))}"${callAt(l.id, l.business_name)}><i>📞</i>Call</a>` : ""}
           ${mErr ? "" : `<button type="button" data-quick="meet"><i>📅</i>Meeting</button>`}
           <button type="button" data-quick="dex"><i>🎨</i>Design</button>
           <button type="button" data-quick="edit"><i>✏️</i>Edit</button>
           ${isAdmin() ? `<a href="#/deals/new/${l.id}"><i>🤝</i>Deal</a>` : ""}
         </div>
         <div class="actions">
-          ${phones.map(([p, t]) => `<a class="btn" href="tel:${esc(tel(p))}">📞 ${esc(t)} · ${esc(p)}</a>`).join("")}
+          ${phones.map(([p, t]) => `<a class="btn" href="tel:${esc(tel(p))}"${callAt(l.id, l.business_name)}>📞 ${esc(t)} · ${esc(p)}</a>`).join("")}
+          ${phones.length ? `<a class="btn ghost" href="sms:${esc(tel(phones[0][0]))}" title="Opens your messaging app (Phone Link). The CRM never sends a text itself.">💬 Text ${esc(phones[0][0])}</a>` : ""}
           ${usable(l.owner_email) ? `<a class="btn ghost" href="mailto:${esc(l.owner_email)}">✉ ${esc(l.owner_email)}${l.owner_email_status === "Inferred" ? " (inferred)" : ""}</a>` : ""}
           ${!usable(l.owner_email) || l.owner_email_status === "Inferred" ? `<button type="button" class="btn ghost" id="add-email-btn">＋ ${usable(l.owner_email) ? "Add confirmed email" : "Add email"}</button>
           <form id="add-email" class="add-email" hidden>

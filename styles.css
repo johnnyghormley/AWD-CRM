@@ -650,3 +650,30 @@ details.fold > summary .sub-h { flex: 1; }
 .meet-move[hidden] { display: none; }
 .agenda-join { display: flex; gap: 6px; padding: 0 16px 8px 84px; }
 @media (max-width: 560px) { .agenda-join { padding-left: 16px; } }
+
+/* Click to call: calling bar + after-call panel (2026-11-19). */
+.callbox { position: fixed; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom)); z-index: 60; display: flex; align-items: center; gap: 10px; max-width: min(420px, calc(100vw - 32px));
+  background: #fff; color: var(--c); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; box-shadow: 0 10px 30px rgba(15,23,42,.18); }
+.callbox.open { display: block; width: 380px; padding: 14px 16px; }
+.callbox-dot { width: 10px; height: 10px; border-radius: 50%; background: #16A34A; flex: none; animation: callpulse 1.4s ease-in-out infinite; }
+@keyframes callpulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .callbox-dot { animation: none; } }
+.callbox-txt { font-size: 14px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.callbox-x { border: 0; background: none; font-size: 22px; line-height: 1; color: var(--muted); cursor: pointer; padding: 2px 4px; }
+.callbox-form { display: grid; gap: 10px; }
+.callbox-form label { display: grid; gap: 4px; font-size: 13px; font-weight: 600; }
+.callbox-form p { margin: -4px 0 0; }
+.callbox-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.callbox-outs { display: flex; flex-wrap: wrap; gap: 6px; }
+.callbox-out { display: inline-flex !important; cursor: pointer; }
+.callbox-out input { position: absolute; opacity: 0; pointer-events: none; }
+.callbox-out span { font-size: 13px; font-weight: 600; padding: 7px 11px; border-radius: 999px; border: 1px solid var(--line); background: #fff; }
+.callbox-out input:checked + span { background: var(--y); border-color: var(--y); color: #1F2937; }
+.callbox-out input:focus-visible + span { outline: 2px solid var(--y); outline-offset: 2px; }
+@media (max-width: 560px) {
+  .callbox, .callbox.open { left: 16px; right: 16px; width: auto; max-width: none; }
+  .callbox.open { max-height: calc(100vh - 32px); overflow-y: auto; }
+}
+:root[data-theme="dark"] .callbox { background: var(--s1); border-color: #3A4656; box-shadow: 0 10px 30px rgba(0,0,0,.5); }
+:root[data-theme="dark"] .callbox-out span { background: var(--s2); border-color: #3A4656; color: #C9D2DE; }
+:root[data-theme="dark"] .callbox-out input:checked + span { background: var(--y); border-color: var(--y); color: #1F2937; }
