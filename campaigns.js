@@ -10,12 +10,12 @@
   const R = window.AWDCampaignRender;
   const BRANDS = {
     ikw: { base: "#/campaigns", title: "Campaigns-Dad", hint: "Email campaigns to I Know Warehouses' HubSpot contacts (iknowwarehouses.com).", vars: "" },
-    awd: { base: "#/campaigns-me", title: "Campaigns-Me", hint: "AWD drip campaigns to leads in this CRM: a first email, then follow-ups a few days apart. A lead stops getting them when they reply, unsubscribe, bounce, or are marked Won, Not Interested, Do Not Call or Disqualified.", vars: "AWD_" }
+    awd: { base: "#/campaigns-email", title: "Campaigns-Email", hint: "AWD drip campaigns to leads in this CRM: a first email, then follow-ups a few days apart. A lead stops getting them when they reply, unsubscribe, bounce, or are marked Won, Not Interested, Do Not Call or Disqualified.", vars: "AWD_" }
   };
   const STOP = ["Won", "Not Interested", "Do Not Call", "Disqualified"];
   let ctx, brand = "ikw", B = BRANDS.ikw, config = null, configErr = "";
   const needsSql = (e) => /brand|steps|step|lead_id|column|schema cache|PGRST204|42703/i.test(((e && e.code) || "") + " " + ((e && e.message) || ""));
-  const sqlCard = () => `<section class="card pad"><h3>One more step</h3><p>Campaigns-Me needs two extra columns in the database. In Supabase, open <b>SQL Editor</b>, paste in <code>campaigns_awd.sql</code> from the CRM folder and click <b>Run</b>. Then reload. (Campaigns-Dad keeps working either way.)</p></section>`;
+  const sqlCard = () => `<section class="card pad"><h3>One more step</h3><p>Campaigns-Email needs two extra columns in the database. In Supabase, open <b>SQL Editor</b>, paste in <code>campaigns_awd.sql</code> from the CRM folder and click <b>Run</b>. Then reload.</p></section>`;
   const pct = (n, d) => d ? Math.round((n / d) * 100) + "%" : "—";
   const name = (c) => [c.firstname, c.lastname].filter(Boolean).join(" ") || "—";
 
@@ -695,9 +695,11 @@
     // route "/campaigns…" = Campaigns-Dad, "/campaigns-me…" = Campaigns-Me
     view(route, helpers) {
       ctx = helpers;
-      brand = /^\/campaigns-me(\/|$)/.test(route) ? "awd" : "ikw"; B = BRANDS[brand];
-      const sub = route.replace(/^\/campaigns(-me)?\/?/, "");
-      // Campaigns-Me opens straight into the weekly email workflow (2026-11-05); "All campaigns" is /campaigns-me/all.
+      // 2026-11-20: Campaigns-Dad (brand "ikw") was removed from the CRM and Campaigns-Me renamed Campaigns-Email,
+      // so every route here is "/campaigns-email…" (brand "awd"). The ikw code stays but is no longer reachable.
+      brand = "awd"; B = BRANDS[brand];
+      const sub = route.replace(/^\/campaigns-email\/?/, "");
+      // Campaigns-Email opens straight into the weekly email workflow (2026-11-05); "All campaigns" is /campaigns-email/all.
       if (!sub && brand === "awd") return ctx.sb.from("campaigns").select("id,audience").eq("brand", "awd").eq("status", "sending")
         .then(({ data }) => { const g = (data || []).find((x) => x.audience && x.audience.channel === "gmail"); return g ? detailView(g.id) : listView(); });
       if (!sub || sub === "all") return listView();

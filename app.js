@@ -420,9 +420,110 @@
     };
   }
 
+  // ---------- Campaigns-Text (2026-11-20, Johnathon) ----------
+  // The text outreach as a workflow, like Campaigns-Email: voicemail left → texted → replied / opted out / failed.
+  // Each lead row has 💬 Text, which opens the usual drawer with the Text A / W draft. Nothing is sent from this page
+  // by itself: one press of Send = one text to one lead, same as before. No bulk, no scheduling.
+  let ctPick = "due";
+  const TEXT_PACE = [30, 50]; // suggested cold texts a day on his personal line (2026-11-20)
+  async function pageAll(q) {
+    const out = [];
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await q().range(from, from + 999);
+      if (error) throw error;
+      out.push(...(data || []));
+      if (!data || data.length < 1000) return out;
+    }
+  }
+  async function campaignsTextView() {
+    let msgs = [], vms = [], dbErr = null;
+    try {
+      [msgs, vms] = await Promise.all([
+        pageAll(() => sb.from("sms_messages").select("lead_id, direction, body, status, read_at, created_at").not("lead_id", "is", null).order("created_at", { ascending: true })),
+        pageAll(() => sb.from("activities").select("lead_id, created_at").eq("kind", "Call").eq("outcome", "Voicemail").order("created_at", { ascending: false }))]);
+    } catch (e) { dbErr = e; }
+    const ids = [...new Set([...msgs.map((m) => m.lead_id), ...vms.map((v) => v.lead_id)].filter(Boolean))];
+    const leads = new Map();
+    for (let i = 0; i < ids.length; i += 150) {
+      const { data } = await sb.from("leads").select("id, business_name, owner_name, owner_phone, website, call_status, lead_status").in("id", ids.slice(i, i + 150));
+      (data || []).forEach((l) => leads.set(l.id, l));
+    }
+    const by = new Map();
+    const get = (id) => { if (!by.has(id)) by.set(id, { id, out: [], inn: [], vm: null }); return by.get(id); };
+    msgs.forEach((m) => { const r = get(m.lead_id); (m.direction === "out" ? r.out : r.inn).push(m); });
+    vms.forEach((v) => { const r = get(v.lead_id); if (!r.vm || v.created_at > r.vm) r.vm = v.created_at; });
+    const rows = [...by.values()].map((r) => ({ ...r, l: leads.get(r.id) })).filter((r) => r.l);
+    rows.forEach((r) => {
+      r.opt = optedOut(r.inn);
+      r.last = [...r.out, ...r.inn].sort((a, b) => b.created_at.localeCompare(a.created_at))[0] || null;
+      r.lastOut = r.out[r.out.length - 1] || null;
+      r.closed = CLOSED.includes(r.l.call_status) || r.l.lead_status === "Disqualified";
+    });
+    const todayKey = new Date().toLocaleDateString("en-CA");
+    const isToday = (t) => new Date(t).toLocaleDateString("en-CA") === todayKey;
+    const due = rows.filter((r) => r.vm && !r.out.length && !r.closed && usable(r.l.owner_phone)).sort((a, b) => b.vm.localeCompare(a.vm));
+    const texted = rows.filter((r) => r.out.length);
+    const sentToday = msgs.filter((m) => m.direction === "out" && isToday(m.created_at));
+    const todayLeads = texted.filter((r) => r.out.some((m) => isToday(m.created_at)));
+    const replied = texted.filter((r) => r.inn.length && !r.opt).sort((a, b) => b.last.created_at.localeCompare(a.last.created_at));
+    const waiting = texted.filter((r) => !r.inn.length && !r.opt && r.lastOut.status !== "failed").sort((a, b) => b.lastOut.created_at.localeCompare(a.lastOut.created_at));
+    const stopped = rows.filter((r) => r.opt);
+    const failed = texted.filter((r) => r.lastOut.status === "failed" && !r.opt);
+    const unread = rows.reduce((n, r) => n + r.inn.filter((m) => !m.read_at).length, 0);
+    const outAll = msgs.filter((m) => m.direction === "out");
+    const delivered = outAll.filter((m) => m.status === "delivered").length;
+    const replyRate = texted.length ? Math.round((replied.length / texted.length) * 100) : 0;
+    const who = (r) => `<a href="#/lead/${esc(r.id)}">${esc(r.l.business_name)}</a><div class="muted small">${usable(r.l.owner_name) ? esc(r.l.owner_name.split(" (")[0]) + " · " : ""}${esc(r.l.owner_phone || "")}</div>`;
+    const lastLine = (r) => r.last ? `${r.last.direction === "out" ? "You: " : ""}${esc(r.last.body.slice(0, 80))}${r.last.body.length > 80 ? "…" : ""}<div class="muted small">${smsTime(r.last.created_at)}${r.last.direction === "out" ? ` · ${SMS_STATUS[r.last.status] || esc(r.last.status)}` : ""}</div>` : `<span class="muted small">No texts yet</span>`;
+    const btn = (r) => r.opt ? `<span class="pill st-disqualified">Opted out</span>` : `<button type="button" class="btn small" data-text-lead="${esc(r.id)}">💬 Text</button>`;
+    const table = (list, empty, extra) => `<table class="tbl"><thead><tr><th>Lead</th><th>${extra ? extra[0] : "Last text"}</th><th>Website</th><th></th></tr></thead>
+      <tbody>${list.map((r) => `<tr><td>${who(r)}</td><td class="small">${extra ? extra[1](r) : lastLine(r)}</td><td class="small">${noSite(r.l.website) ? "None (Text A)" : "Has one (Text W)"}</td><td>${btn(r)}</td></tr>`).join("")
+        || `<tr><td colspan="4" class="muted pad">${empty}</td></tr>`}</tbody></table>`;
+    const PANELS = {
+      due: ["Voicemail left, not texted yet", "Leads you left a voicemail for that haven't had a text yet (newest voicemail first). Press 💬 Text: the box opens with the Text A or W draft for you to read and send.",
+        table(due, "Nobody waiting. Leads show up here after you log a call as Voicemail.", ["Voicemail", (r) => smsTime(r.vm)])],
+      today: ["Texted today", `${sentToday.length} texts to ${todayLeads.length} leads today. Suggested pace on your personal line: ${TEXT_PACE[0]}–${TEXT_PACE[1]} cold texts a day, spread out.`, table(todayLeads, "No texts sent yet today.")],
+      waiting: ["Texted, no reply yet", "Texted at least once and haven't answered.", table(waiting, "Nobody waiting on a reply.")],
+      replied: ["Replied", "They texted back. Open the thread to answer; a yes means book the meeting, then Dex builds the design.", table(replied, "No replies yet.")],
+      stopped: ["Opted out", "Replied STOP (or UNSUBSCRIBE, CANCEL, END, QUIT). The CRM won't text them again unless they reply START.", table(stopped, "Nobody has opted out.")],
+      failed: ["Last text failed", "The phone or carrier couldn't send their last text. Check the number, or the Texts tab Setup card if several fail at once.", table(failed, "No failed texts.")]
+    };
+    if (!PANELS[ctPick]) ctPick = "due";
+    const [pTitle, pSub, pBody] = PANELS[ctPick];
+    const node = (key, icon, title, big, sub, cls = "") =>
+      `<button type="button" class="wf-node ${cls} ${ctPick === key ? "on" : ""}" data-ct="${key}"><span class="wf-ico">${icon}</span><span class="wf-t">${title}</span><b>${big}</b>${sub ? `<span class="wf-sub">${sub}</span>` : ""}</button>`;
+    const arrow = `<span class="wf-arrow" aria-hidden="true"></span>`;
+    const sample = { owner_name: "Grace Dickerson", business_name: "Your Business" };
+    app.innerHTML = `
+      <h2 class="h">Campaigns-Text</h2>
+      <p class="muted small tab-hint">Voicemail follow-up texts from your own cell. Every text is one press of Send to one lead, from the 💬 Text box; nothing goes out by itself. Text A goes to leads with no website, Text W to leads that have one. Click any step to see its leads.</p>
+      ${dbErr ? `<p class="pill warn">${/sms_messages/.test(dbErr.message || "") ? "Run sms.sql in Supabase to turn texts on." : esc(dbErr.message || String(dbErr))}</p>` : ""}
+      <section class="stats">
+        <div class="stat"><span>Texts sent</span><b>${outAll.length}</b><span>to ${texted.length} leads</span></div>
+        <div class="stat"><span>Sent today</span><b>${sentToday.length}</b><span>suggested ${TEXT_PACE[0]}–${TEXT_PACE[1]} a day</span></div>
+        <div class="stat"><span>Delivered</span><b>${outAll.length ? Math.round((delivered / outAll.length) * 100) : 0}%</b><span>${delivered} of ${outAll.length}</span></div>
+        <div class="stat"><span>Reply rate</span><b>${replyRate}%</b><span>${replied.length} of ${texted.length} leads${unread ? ` · ${unread} unread` : ""}</span></div>
+      </section>
+      <section class="card wf">
+        <div class="wf-flow">
+          <div class="wf-col">${node("due", "📞", "Voicemail left", due.length, "not texted yet", "wf-hot")}</div>${arrow}
+          <div class="wf-col">${node("today", "📤", "Texted today", sentToday.length, `${todayLeads.length} leads`)}</div>${arrow}
+          <div class="wf-col">${node("waiting", "⏳", "No reply yet", waiting.length, "texted, waiting")}</div>${arrow}
+          <div class="wf-col">${node("replied", "💬", "Replied", replied.length, unread ? `${unread} unread` : "", "wf-good")}${node("stopped", "✋", "Opted out", stopped.length)}${node("failed", "⚠️", "Failed", failed.length)}</div>
+        </div>
+      </section>
+      <section class="card table-wrap"><div class="pad" style="padding-bottom:6px"><h3 style="margin:0">${pTitle}</h3><p class="muted small" style="margin:4px 0 0">${pSub}</p></div>${pBody}</section>
+      <details class="card pad"><summary><b>Text drafts</b></summary>
+        <p class="small"><b>Text A</b> (no website):</p><pre style="white-space:pre-wrap;font:inherit">${esc(voicemailDraft({ ...sample, website: "" }))}</pre>
+        <p class="small"><b>Text W</b> (has a website):</p><pre style="white-space:pre-wrap;font:inherit">${esc(voicemailDraft({ ...sample, website: "https://example.com" }))}</pre>
+        <p class="muted small">The lead's first name goes in place of Grace. Edit the box before you press Send if you want to change a text.</p></details>`;
+    app.querySelectorAll("[data-ct]").forEach((b) => b.onclick = () => { ctPick = b.dataset.ct; campaignsTextView(); });
+  }
+
   // ---------- roles (2026-11-08): admin (Johnathon) vs employee ----------
-  // Employees can't see Campaigns-Me, Campaigns-Dad, Designs, Deals, Pipeline or Team. The database blocks those tables for them too (roles.sql).
-  const ADMIN_ROUTE = /^\/(campaigns(-me)?(\/|$)|designs$|deals(\/|$)|pipeline$|team$|analytics$|texts$)/;
+  // Employees can't see Campaigns-Email, Campaigns-Text, Designs, Deals, Pipeline or Team. The database blocks those tables for them too (roles.sql).
+  // (Campaigns-Dad was removed 2026-11-20; Campaigns-Me was renamed Campaigns-Email the same day.)
+  const ADMIN_ROUTE = /^\/(campaigns(-me|-email|-text)?(\/|$)|designs$|deals(\/|$)|pipeline$|team$|analytics$|texts$)/;
   let role = null, roleFor = null;
   async function loadRole(s) {
     if (roleFor === s.user.id && role) return role;
@@ -579,7 +680,7 @@
     ["followups", "Follow-ups", (l) => !isSpanish(l) && isDue(l) && !hasMeeting(l) && !isOnlyEmail(l), "English leads with a follow-up due today, plus overdue ones. Spanish follow-ups stay on Spanish Ready. Leads with a meeting booked, or called 3 times and reachable by email, aren't listed here."],
     ["spanish", "Spanish Ready", readySpanish, "Spanish-speaking leads for the bilingual caller: follow-ups due today (and overdue ones), then leads not called yet (an amber Missing tag means only the company's phone was found). Leads with a meeting booked, or called 3 times and reachable by email, aren't listed here."],
     ["missing", "Missing info", (l) => !isSpanish(l) && l.lead_status === "Missing Info" && l.call_status === "New" && !isOnlyEmail(l), "Not called yet, still missing some info (for example, only the company's phone, no owner phone)."],
-    ["onlyemail", "Only email", isOnlyEmail, "Leads with an email but no phone number, plus leads called 3 times that have an email, plus leads you moved here with Move to email list. They get the weekly Gmail email (Campaigns-Me) instead of calls. Ones with no email yet wait here while Claude looks for one."],
+    ["onlyemail", "Only email", isOnlyEmail, "Leads with an email but no phone number, plus leads called 3 times that have an email, plus leads you moved here with Move to email list. They get the weekly Gmail email (Campaigns-Email) instead of calls. Ones with no email yet wait here while Claude looks for one."],
     ["called", "Called", (l) => l.call_status !== "New" && !isDq(l), "Everyone you've called. Check Follow up to move a lead into the Follow up list."],
     ["disqualified", "Disqualified", isDq, "Leads that aren't a fit. They're kept out of every other list. Tap Restore to put one back in English Ready (or Spanish Ready)."]
   ];
@@ -1935,7 +2036,7 @@ ${links()}`;
     const me = (await session()).user.id;
     app.innerHTML = `
       <div class="pad"><h2>Team</h2>
-      <p class="muted small tab-hint">Everyone who can sign in to the CRM. <b>Employees</b> see and work the leads (Today, Search, Inquired, every lead tab, Tasks, Calendar, Script, Add lead, Import) but not Campaigns-Me, Campaigns-Dad, Designs, Deals, Pipeline or this page; the database blocks campaign, design and deal data for them too.
+      <p class="muted small tab-hint">Everyone who can sign in to the CRM. <b>Employees</b> see and work the leads (Today, Search, Inquired, every lead tab, Tasks, Calendar, Script, Add lead, Import) but not Campaigns-Email, Campaigns-Text, Texts, Designs, Deals, Pipeline or this page; the database blocks campaign, design and deal data for them too.
       To add someone, tell Claude “invite <i>their email</i> to the CRM” (runs <code>CRM App/sync/crm_invite.py</code>), or in Supabase go to Authentication → Users → Invite user. They get an email, click the link, and choose their own password. New logins start as Employee.</p>
       <div class="card">${(users || []).map((u) => `
         <div class="row"><div class="row-main"><b>${esc(u.email || u.user_id)}</b><span class="muted">Added ${fmtTime(u.created_at)}${u.user_id === me ? " · you" : ""}</span></div>
@@ -1960,7 +2061,10 @@ ${links()}`;
     let h = location.hash.replace(/^#/, "") || "/";
     if (/^(access_token|error)=/.test(h)) { history.replaceState(null, "", "#/"); h = "/"; }
     if (ADMIN_ROUTE.test(h) && !isAdmin()) { toast("That page is for admins only", true); location.hash = "#/"; return; }
-    nav.querySelectorAll("a").forEach((a) => a.classList.toggle("on", a.getAttribute("href") === "#" + h || (h.startsWith("/lead/") && a.getAttribute("href") === "#/leads") || (h.startsWith("/deals") && a.getAttribute("href") === "#/deals") || (h.startsWith("/campaigns/") && a.getAttribute("href") === "#/campaigns") || (h.startsWith("/campaigns-me/") && a.getAttribute("href") === "#/campaigns-me")));
+    // 2026-11-20: Campaigns-Me is now Campaigns-Email (old links still work); Campaigns-Dad (#/campaigns) was removed.
+    if (/^\/campaigns-me(\/|$)/.test(h)) { location.replace("#" + h.replace(/^\/campaigns-me/, "/campaigns-email")); return; }
+    if (/^\/campaigns(\/|$)/.test(h)) { location.replace("#/campaigns-email"); return; }
+    nav.querySelectorAll("a").forEach((a) => a.classList.toggle("on", a.getAttribute("href") === "#" + h || (h.startsWith("/lead/") && a.getAttribute("href") === "#/leads") || (h.startsWith("/deals") && a.getAttribute("href") === "#/deals") || (h.startsWith("/campaigns-email/") && a.getAttribute("href") === "#/campaigns-email")));
     document.body.classList.toggle("full", h === "/designs");
     app.innerHTML = `<p class="muted pad">Loading…</p>`;
     refreshInquiryCount().catch(() => {});
@@ -1977,7 +2081,8 @@ ${links()}`;
       else if (h === "/tasks") await tasksView();
       else if (h === "/texts") await textsView();
       else if (h === "/designs") designsView();
-      else if (/^\/campaigns(-me)?(\/|$)/.test(h)) await window.AWDCampaigns.view(h, { sb, app, esc, toast, fail, fmtTime, session });
+      else if (h === "/campaigns-text") await campaignsTextView();
+      else if (/^\/campaigns-email(\/|$)/.test(h)) await window.AWDCampaigns.view(h, { sb, app, esc, toast, fail, fmtTime, session });
       else if (h === "/script") scriptView();
       else if (h === "/team") await teamView();
       else if (h === "/search") await searchView();
