@@ -273,10 +273,11 @@
     return w ? w[0].toUpperCase() + w.slice(1) : "";
   }
   function voicemailDraft(l) {
-    // Shortened 2026-11-20 (Johnathon) to fit one 160-character text (142 chars + the first name; fits names up to 17 letters).
+    // 2026-11-20 (Johnathon): Text A is his own wording (176 chars + first name, 2 segments, no STOP line);
+    // Text W was shortened to one 160-character text (142 chars + first name).
     const fn = firstName(l.owner_name), hi = fn ? `Hi ${fn}, it's Johnny` : "Hi, it's Johnny";
     return noSite(l.website)
-      ? `${hi} w/ Affordable Web Designs. Left you a VM. Saw you don't have a website so I built you one, free. Wanna see it? STOP to opt out`
+      ? `${hi} at AWD. I'm a fresh IT grad student from UH. I was on Google and saw you don't have a website so I built you one, free. Do you have 10-15 min to give it a look?`
       : `${hi} w/ Affordable Web Designs. Left you a VM. Saw your site and built a fresh, modern version, free. Wanna see it? STOP to opt out`;
   }
   // Opt-out: a reply that is only STOP / UNSUBSCRIBE / CANCEL / END / QUIT (any case). START or UNSTOP afterwards opts back in.
