@@ -274,11 +274,11 @@
   }
   function voicemailDraft(l) {
     // 2026-11-20 (Johnathon): Text A is his own wording (176 chars + first name, 2 segments, no STOP line);
-    // Text W was shortened to one 160-character text (142 chars + first name).
+    // Text W is his wording too (146 chars + first name: one text for names up to 14 letters, no STOP line).
     const fn = firstName(l.owner_name), hi = fn ? `Hi ${fn}, it's Johnny` : "Hi, it's Johnny";
     return noSite(l.website)
       ? `${hi} at AWD. I'm a fresh IT grad student from UH. I was on Google and saw you don't have a website so I built you one, free. Do you have 10-15 min to give it a look?`
-      : `${hi} w/ Affordable Web Designs. Left you a VM. Saw your site and built a fresh, modern version, free. Wanna see it? STOP to opt out`;
+      : `${hi} w/ Affordable Web Designs. Left you a VM. Saw your site and built a fresh, modern version, free. Do you have 10-15 min to give it a look?`;
   }
   // Opt-out: a reply that is only STOP / UNSUBSCRIBE / CANCEL / END / QUIT (any case). START or UNSTOP afterwards opts back in.
   const OPT_OUT = /^\s*(stop|unsubscribe|cancel|end|quit)\s*[.!]*\s*$/i, OPT_IN = /^\s*(start|unstop)\s*[.!]*\s*$/i;
