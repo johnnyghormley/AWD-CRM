@@ -681,7 +681,10 @@
     ["spanish", "Spanish Ready", readySpanish, "Spanish-speaking leads for the bilingual caller: follow-ups due today (and overdue ones), then leads not called yet (an amber Missing tag means only the company's phone was found). Leads with a meeting booked, or called 3 times and reachable by email, aren't listed here."],
     ["missing", "Missing info", (l) => !isSpanish(l) && l.lead_status === "Missing Info" && l.call_status === "New" && !isOnlyEmail(l), "Not called yet, still missing some info (for example, only the company's phone, no owner phone)."],
     ["onlyemail", "Only email", isOnlyEmail, "Leads with an email but no phone number, plus leads called 3 times that have an email, plus leads you moved here with Move to email list. They get the weekly Gmail email (Campaigns-Email) instead of calls. Ones with no email yet wait here while Claude looks for one."],
-    ["called", "Called", (l) => l.call_status !== "New" && !isDq(l), "Everyone you've called. Check Follow up to move a lead into the Follow up list."],
+    ["called", "Called", (l) => l.call_status !== "New" && !isDq(l) && l.call_status !== "Not Interested", "Everyone you've called. Check Follow up to move a lead into the Follow up list. Not interested leads are on the Not interested tab."],
+    // Not interested (2026-11-22, Johnathon): leads who said no (on a call, or in reply to a text or email; Ray sorts the replies).
+    // "Not interested at this time" = no texts or emails for 3 months; the follow-up date is the day they can be contacted again.
+    ["notinterested", "Not interested", (l) => l.call_status === "Not Interested", "Leads who said no thanks. Not interested at this time: no texts or emails until the date shown (3 months), then Ray moves them back to Called. Asked not to be contacted: never again."],
     ["disqualified", "Disqualified", isDq, "Leads that aren't a fit. They're kept out of every other list. Tap Restore to put one back in English Ready (or Spanish Ready)."]
   ];
 
@@ -702,6 +705,12 @@
     if (tab === "disqualified") {
       const why = dqReasons.get(String(l.id)) || (l.call_status === "Do Not Call" ? DNC_REASON : "");
       return todayRow(l, false, `<div class="trow-extra">${why ? `<span class="dq-why">${esc(why)}</span>` : ""}<button type="button" class="btn ghost small" data-restore="${l.id}">↩ Restore</button></div>`);
+    }
+    if (tab === "notinterested") {
+      const never = /never text or email|NO MORE TEXTS/i.test(l.next_step || "");
+      const back = l.follow_up_date ? new Date(l.follow_up_date + "T12:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "";
+      const tag = /Asked not to be contacted/i.test(l.next_step || "") ? "Never contact" : back ? `Back ${back}${never ? " · no texts" : ""}` : "No date";
+      return todayRow(l, false, `<div class="trow-extra"><span class="pill st-not-interested">${esc(tag)}</span></div>`);
     }
     if (tab === "ready-due") return todayRow(l, true, `<div class="trow-extra"><span class="pill ${statusClass(l.call_status)}">${esc(l.call_status)}</span></div>`);
     const status = tab === "called" ? `<span class="pill ${statusClass(l.call_status)}">${esc(l.call_status)}</span>` : "";
@@ -827,7 +836,10 @@
 
   function inquiryRow(q) {
     const site = usable(q.website) ? (/^https?:/i.test(q.website) ? q.website : "https://" + q.website) : "";
-    const btns = q.status === "New"
+    // Text/email replies sorted by Ray (2026-11-22) are already leads: open the lead and mark handled, never add a duplicate.
+    const btns = q.status === "New" && q.lead_id
+      ? `<a class="btn small" href="#/lead/${q.lead_id}">Open lead</a><button class="btn ghost small" data-handled="${q.id}">Mark handled</button>`
+      : q.status === "New"
       ? `<button class="btn small" data-add="${q.id}">Add to leads</button><button class="btn ghost small" data-dismiss="${q.id}">Dismiss</button>`
       : q.lead_id ? `<a class="btn ghost small" href="#/lead/${q.lead_id}">Open lead</a>` : `<span class="pill">${esc(q.status)}</span>`;
     return `<div class="trow inq">
@@ -835,7 +847,7 @@
         <span class="trow-name">${esc(q.business)}</span>
         <span class="trow-contact">${esc(q.name)}${usable(q.trade) ? " · " + esc(q.trade) : ""}</span>
         <span class="muted small">${fmtTime(q.created_at)}${usable(q.email) ? ` · <a href="mailto:${esc(q.email)}">${esc(q.email)}</a>` : ""}${site ? ` · <a href="${esc(site)}" target="_blank" rel="noopener">${esc(q.website)}</a>` : " · No website"}</span>
-        ${usable(q.source) ? `<span class="muted small">Heard about us: <b>${esc(q.source)}</b></span>` : ""}
+        ${/^(Text|Email) reply$/.test(q.source || "") ? `<span class="muted small">From: <b>${esc(q.source)}</b> to our cold ${q.source === "Text reply" ? "text" : "email"}</span>` : usable(q.source) ? `<span class="muted small">Heard about us: <b>${esc(q.source)}</b></span>` : ""}
         ${usable(q.message) ? `<span class="inq-msg">“${esc(q.message)}”</span>` : ""}
       </div>
       <div class="trow-extra">${btns}</div>
@@ -869,6 +881,11 @@
       const { error: e2 } = await sb.from("inquiries").update({ status: "Added to leads", lead_id: data.id }).eq("id", q.id);
       if (e2) return fail(e2);
       toast(`${q.business} added to leads`); location.hash = "#/lead/" + data.id;
+    });
+    app.querySelectorAll("[data-handled]").forEach((b) => b.onclick = async () => {
+      const { error: e1 } = await sb.from("inquiries").update({ status: "Handled" }).eq("id", b.dataset.handled);
+      if (e1) return fail(e1);
+      toast("Marked handled"); inquiredView();
     });
     app.querySelectorAll("[data-dismiss]").forEach((b) => b.onclick = async () => {
       const q = qs.find((x) => x.id === b.dataset.dismiss);
@@ -2073,7 +2090,7 @@ ${links()}`;
     try {
       if (h === "/") await todayView();
       else if (h === "/inquired") await inquiredView();
-      else if (["/ready", "/followups", "/spanish", "/missing", "/onlyemail", "/called", "/disqualified"].includes(h)) await tabView(h.slice(1));
+      else if (["/ready", "/followups", "/spanish", "/missing", "/onlyemail", "/called", "/notinterested", "/disqualified"].includes(h)) await tabView(h.slice(1));
       else if (h === "/calendar") await calendarView();
       else if (h === "/pipeline") await pipelineView();
       else if (h === "/analytics") await window.AWDAnalytics.view({ sb, app, esc, toast, fail });
