@@ -61,9 +61,10 @@ module.exports = async (req, res) => {
           await sms.sdb(`sms_messages?phone=eq.%2B1${num}&direction=eq.out&status=neq.failed`, { method: "PATCH", body: { status: "failed", error: err, updated_at: now }, prefer: "return=minimal" });
           const leadId = outs[0].lead_id;
           const seen = ((await sms.sdb(`activities?lead_id=eq.${leadId}&note=like.*not%20a%20valid%20mobile%20number*&select=id&limit=1`)) || []).length;
-          await sms.sdb("activities", { method: "POST", body: { lead_id: leadId, kind: "Text", outcome: "Reply sorted",
-            note: seen ? `Carrier bounce for ${num} (already noted). [ray:bounce:${inId}]`
-                       : `Text bounced: carrier says ${num} is not a valid mobile number (likely a landline). Call this lead instead of texting. [ray:bounce:${inId}]` }, prefer: "return=minimal" });
+          // A Note on the contact, never a status change: a bounce doesn't disqualify the lead (Johnathon, 2026-11-22).
+          await sms.sdb("activities", { method: "POST", body: { lead_id: leadId, kind: "Note", outcome: "Reply sorted",
+            note: seen ? `Carrier bounce for ${num} again (already noted). [ray:bounce:${inId}]`
+                       : `Text message to this number is invalid: ${num} (carrier says it's not a valid mobile number, likely a landline). Call instead. [ray:bounce:${inId}]` }, prefer: "return=minimal" });
         }
         return send(res, 200, { ok: true, bounce: num, matched: !!outs.length });
       }
