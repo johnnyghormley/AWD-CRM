@@ -36,7 +36,9 @@ module.exports = async (req, res) => {
   catch (e) { return send(res, 500, { error: /sms_messages/.test(e.message) ? "Texts aren't set up in the database yet: run sms.sql in Supabase." : e.message }); }
 
   try {
-    const r = await sms.gateway("/messages", { method: "POST", body: { id, textMessage: { text: body }, phoneNumbers: [phone], withDeliveryReport: true } });
+    // 10 digits, no +1 (Johnathon 2026-11-22). skipPhoneValidation is REQUIRED with it: without it the gateway turned
+    // a 979 number into Russian +7. The +1 format is still what we store, so replies match the lead.
+    const r = await sms.gateway("/messages?skipPhoneValidation=true", { method: "POST", body: { id, textMessage: { text: body }, phoneNumbers: [phone.replace(/^\+1/, "")], withDeliveryReport: true } });
     const gid = (r && r.id) || id;
     if (gid !== id) await db(token, `sms_messages?id=eq.${id}`, { method: "PATCH", body: { gateway_message_id: gid, updated_at: new Date().toISOString() }, prefer: "return=minimal" });
     await db(token, "activities", { method: "POST", body: { lead_id: lead.id, kind: "Text", note: `Text sent: ${body}` }, prefer: "return=minimal" }).catch(() => {});
