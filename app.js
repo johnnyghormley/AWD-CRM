@@ -607,7 +607,7 @@
 
   // Compact row for the Today screen: company, contact, highlighted tap-to-call phone, missing-info flag.
   // `extra` is optional HTML (status pill, follow-up checkbox) shown between the details and the phone button.
-  function todayRow(l, due, extra = "") {
+  function todayRow(l, due, extra = "", dqBtn = false) {
     const phone = usable(l.owner_phone) ? l.owner_phone : l.business_phone;
     const missing = l.lead_status === "Missing Info"
       ? (usable(l.missing) ? l.missing.replace(/^needs?\s*/i, "").split(/[;.]/)[0].slice(0, 60) : "info") : "";
@@ -620,6 +620,7 @@
         ${due ? `<span class="due ${late ? "late" : ""}">${late ? "Overdue · " : "Due "}${fmtDate(l.follow_up_date)}</span>` : ""}
       </div>
       ${extra}
+      ${dqBtn ? `<button type="button" class="trow-text trow-dq" data-dq-lead="${l.id}" aria-label="Disqualify ${esc(l.business_name)}" title="Disqualify">🚫</button>` : ""}
       ${isAdmin() && usable(l.owner_phone) ? `<button type="button" class="trow-text" data-text-lead="${l.id}" aria-label="Text ${esc(l.business_name)}" title="Text from your cell">💬</button>` : ""}
       ${usable(phone) ? `<a class="trow-phone" href="tel:${esc(tel(phone))}"${callAt(l.id, l.business_name)}><svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1z"/></svg>${esc(phone)}</a>` : '<span class="trow-nophone">No phone</span>'}
     </div>`;
@@ -715,7 +716,8 @@
     if (tab === "ready-due") return todayRow(l, true, `<div class="trow-extra"><span class="pill ${statusClass(l.call_status)}">${esc(l.call_status)}</span></div>`);
     const status = tab === "called" ? `<span class="pill ${statusClass(l.call_status)}">${esc(l.call_status)}</span>` : "";
     const box = tab === "called" ? `<label class="fu-check"><input type="checkbox" data-id="${l.id}" ${isFollow(l) ? "checked" : ""}>Follow up</label>` : "";
-    return todayRow(l, tab === "called" && !!l.follow_up_date, `<div class="trow-extra">${status}${box}</div>`);
+    // Ready cards get a 🚫 Disqualify button next to Text and Call (2026-11-23, Johnathon), no need to open the lead.
+    return todayRow(l, tab === "called" && !!l.follow_up_date, `<div class="trow-extra">${status}${box}</div>`, tab === "ready");
   }
 
   function tabList(rows, tab, empty) {
@@ -808,6 +810,36 @@
     }
     // Collapsible sections (Ready tab's "Follow-ups due today", 2026-11-10): open or closed is remembered in this browser.
     el.querySelectorAll("details.fold").forEach((d) => d.addEventListener("toggle", () => { try { localStorage.setItem("awd_fold_" + d.dataset.fold, d.open ? "1" : "0"); } catch {} }));
+    // 🚫 on a Ready card: pick a reason right under the card (same reasons as the lead page), then it leaves the list.
+    el.querySelectorAll("[data-dq-lead]").forEach((b) => b.onclick = (e) => {
+      e.preventDefault(); e.stopPropagation();
+      const row = b.closest(".trow");
+      const open = row.nextElementSibling && row.nextElementSibling.classList.contains("trow-dqform");
+      el.querySelectorAll(".trow-dqform").forEach((f) => f.remove());
+      if (open) return;
+      const l = leads.find((x) => String(x.id) === b.dataset.dqLead);
+      const f = document.createElement("form");
+      f.className = "trow-dqform add-email";
+      f.innerHTML = `<b class="small">Disqualify ${esc(l.business_name)}?</b>
+        <select required aria-label="Reason"><option value="">Reason (required)…</option>${DQ_REASONS.map((r) => `<option>${r}</option>`).join("")}</select>
+        <input placeholder="Details (optional)" autocomplete="off" aria-label="Details">
+        <button class="btn danger small">Disqualify</button>
+        <button type="button" class="btn ghost small" data-dq-cancel>Cancel</button>`;
+      row.after(f);
+      const sel = f.querySelector("select"), note = f.querySelector("input");
+      sel.focus();
+      sel.onchange = () => { note.required = sel.value === "Other"; note.placeholder = note.required ? "Details (required for Other)" : "Details (optional)"; };
+      f.querySelector("[data-dq-cancel]").onclick = () => f.remove();
+      f.onsubmit = async (ev) => {
+        ev.preventDefault();
+        const n = note.value.trim();
+        if (!sel.value) return toast("Pick a reason first", true);
+        if (sel.value === "Other" && !n) { note.focus(); return toast("Type the reason", true); }
+        f.querySelectorAll("button, select, input").forEach((x) => x.disabled = true);
+        if (await disqualify(l, [sel.value, n].filter(Boolean).join(" · "))) drawTab(leads, tab);
+        else f.querySelectorAll("button, select, input").forEach((x) => x.disabled = false);
+      };
+    });
     el.querySelectorAll("[data-restore]").forEach((b) => b.onclick = async () => {
       const l = leads.find((x) => String(x.id) === b.dataset.restore);
       b.disabled = true;

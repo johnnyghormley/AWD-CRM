@@ -720,3 +720,10 @@ details.fold > summary .sub-h { flex: 1; }
 .vmbox { flex-wrap: wrap; }
 .vmbox .callbox-txt { white-space: normal; }
 :root[data-theme="dark"] .textbox-optout { background: rgba(248,113,113,.2); color: #FCA5A5; }
+
+/* Disqualify button on Ready cards (2026-11-23): 🚫 next to Text and Call; the reason form opens under the card. */
+.trow-dq:hover { background: #FEE2E2; border-color: #FCA5A5; }
+.trow-dqform { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px; margin: -2px 0 6px; border: 1px solid #FCA5A5; border-radius: 10px; background: #FEF2F2; }
+.trow-dqform select, .trow-dqform input { flex: 1 1 160px; min-width: 0; }
+:root[data-theme="dark"] .trow-dq:hover { background: rgba(248,113,113,.18); border-color: #F87171; }
+:root[data-theme="dark"] .trow-dqform { background: rgba(248,113,113,.10); border-color: rgba(248,113,113,.5); }
