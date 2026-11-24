@@ -148,6 +148,8 @@ async function pull(at, conn, out) {
   }
 }
 const sameTimeOk = (m, t) => g.sameTime(m, t);
+// Updates the existing connection row (an upsert would fail: the row's refresh token column can't be empty).
+const setConn = (patch) => g.sdb("gcal_connection?id=eq.1", { method: "PATCH", body: { updated_at: new Date().toISOString(), ...patch }, prefer: "return=minimal" }).catch(() => {});
 
 module.exports = async (req, res) => {
   const isCron = req.method === "GET";
@@ -165,10 +167,10 @@ module.exports = async (req, res) => {
     const at = await g.accessToken(conn);
     if (dirty.length) await push(at, origin(req), out);
     if (pullDue) await pull(at, conn, out);
-    await g.saveConnection({ last_sync_at: new Date().toISOString(), last_error: out.errors[0] || null }).catch(() => {});
+    await setConn({ last_sync_at: new Date().toISOString(), last_error: out.errors[0] || null });
   } catch (e) {
     out.ok = false; out.error = e.message; out.code = e.code;
-    await g.saveConnection({ last_error: e.message.slice(0, 300) }).catch(() => {});
+    await setConn({ last_error: e.message.slice(0, 300) });
   }
   if (isCron) return send(res, 200, { ok: out.ok });
   send(res, 200, out);
