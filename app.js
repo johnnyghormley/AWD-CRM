@@ -445,6 +445,9 @@
   // by itself: one press of Send = one text to one lead, same as before. No bulk, no scheduling.
   let ctPick = "due";
   const TEXT_PACE = [30, 50]; // suggested cold texts a day on his personal line (2026-11-20)
+  // Every lead list loads ALL rows (2026-11-24): Supabase returns at most 1,000 rows per request, so with 1,931 leads
+  // search, the Leads list, tabs and pipeline silently missed the oldest 931 (e.g. Amazing Grace). id breaks ties so pages don't overlap.
+  function allRows(q) { return pageAll(() => q().order("id")).then((data) => ({ data, error: null }), (error) => ({ data: null, error })); }
   async function pageAll(q) {
     const out = [];
     for (let from = 0; ; from += 1000) {
@@ -763,7 +766,7 @@
 
   async function tabView(tab) {
     const [{ data: leads, error }, { data: dq, error: e2 }] = await Promise.all([
-      sb.from("leads").select("*").order("follow_up_date", { ascending: true, nullsFirst: false }),
+      allRows(() => sb.from("leads").select("*").order("follow_up_date", { ascending: true, nullsFirst: false })),
       sb.from("activities").select("lead_id, note").like("note", "Disqualified:%").order("created_at", { ascending: false })
     ]);
     if (error || e2) return fail(error || e2);
@@ -972,7 +975,7 @@
   }
 
   async function todayView() {
-    const { data: leads, error } = await sb.from("leads").select("*").order("follow_up_date", { ascending: true, nullsFirst: false });
+    const { data: leads, error } = await allRows(() => sb.from("leads").select("*").order("follow_up_date", { ascending: true, nullsFirst: false }));
     if (error) return fail(error);
     const open = (l) => !CLOSED.includes(l.call_status);
     const due = leads.filter((l) => open(l) && l.follow_up_date && l.follow_up_date <= today() && !isOnlyEmail(l));
@@ -1056,7 +1059,7 @@
   }
 
   async function leadsView() {
-    const { data: leads, error } = await sb.from("leads").select("*").order("updated_at", { ascending: false });
+    const { data: leads, error } = await allRows(() => sb.from("leads").select("*").order("updated_at", { ascending: false }));
     if (error) return fail(error);
     const uniq = (k) => [...new Set(leads.map((l) => l[k]).filter(usable))].sort();
     const sel = (id, label, opts) => `<select id="${id}"><option value="">${label}</option>${opts.map((o) => `<option>${esc(o)}</option>`).join("")}</select>`;
@@ -1097,7 +1100,7 @@
   let searchQ = "";
   async function searchView() {
     const [{ data: leads, error }, { data: inqs }] = await Promise.all([
-      sb.from("leads").select("*").order("updated_at", { ascending: false }),
+      allRows(() => sb.from("leads").select("*").order("updated_at", { ascending: false })),
       sb.from("inquiries").select("*").order("created_at", { ascending: false })
     ]);
     if (error) return fail(error);
@@ -1170,7 +1173,7 @@
   const PIPE = ["New", "Called", "Callback", "Follow Up", "Design Sent", "Won", "Not Interested"];
   let pipeQ = "", pipeList = "";
   async function pipelineView() {
-    const { data: leads, error } = await sb.from("leads").select("*").order("updated_at", { ascending: false });
+    const { data: leads, error } = await allRows(() => sb.from("leads").select("*").order("updated_at", { ascending: false }));
     if (error) return fail(error);
     setNavCounts(leads);
     app.innerHTML = `
@@ -1243,7 +1246,7 @@
   async function syncDeals() {
     const [{ data: deals, error }, { data: leads }, { data: meets }, { data: reqs }, { data: designs }, { data: acts }] = await Promise.all([
       sb.from("deals").select("id,lead_id,stage,upfront,monthly"),
-      sb.from("leads").select("id,business_name,call_status"),
+      allRows(() => sb.from("leads").select("id,business_name,call_status")),
       sb.from("meetings").select("lead_id,status").in("status", ["scheduled", "done"]).neq("kind", CALLBACK).not("lead_id", "is", null),
       sb.from("design_requests").select("business,status"),
       sb.from("designs").select("business,status,pkg,upfront,monthly"),
@@ -1292,7 +1295,7 @@
     await syncDeals().catch((e) => console.warn("deal sync", e));
     const [{ data: deals, error }, { data: leads, error: lErr }] = await Promise.all([
       sb.from("deals").select("*, leads(business_name, owner_name, owner_phone, business_phone, city)").order("updated_at", { ascending: false }),
-      sb.from("leads").select("id,business_name,city,call_status").neq("call_status", "Disqualified").order("business_name")
+      allRows(() => sb.from("leads").select("id,business_name,city,call_status").neq("call_status", "Disqualified").order("business_name"))
     ]);
     if (lErr) return fail(lErr);
     if (error) {
@@ -1417,7 +1420,7 @@
   let taskTab = "due";
   async function tasksView() {
     const [{ data: leads, error }, { data: meets, error: mErr }] = await Promise.all([
-      sb.from("leads").select("id,business_name,owner_name,owner_phone,business_phone,call_status,follow_up_date,next_step").not("follow_up_date", "is", null),
+      allRows(() => sb.from("leads").select("id,business_name,owner_name,owner_phone,business_phone,call_status,follow_up_date,next_step").not("follow_up_date", "is", null)),
       sb.from("meetings").select("*, leads(business_name, owner_name, owner_phone, business_phone)").eq("status", "scheduled").neq("kind", CALLBACK).not("lead_id", "is", null).order("starts_at", { ascending: true })
     ]);
     if (error) return fail(error);
@@ -2083,7 +2086,7 @@ ${links()}`;
             if (!o.call_status) o.call_status = "New";
             return { row: o, notes };
           }).filter((x) => x.row.business_name);
-          const { data: existing, error } = await sb.from("leads").select("business_name,business_phone,owner_phone");
+          const { data: existing, error } = await allRows(() => sb.from("leads").select("business_name,business_phone,owner_phone"));
           if (error) return fail(error);
           const seen = new Set(existing.map((x) => slug(x.business_name) + "|" + tel(x.owner_phone || x.business_phone)));
           const fresh = rows.filter((x) => !seen.has(slug(x.row.business_name) + "|" + tel(x.row.owner_phone || x.row.business_phone)));
