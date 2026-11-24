@@ -530,12 +530,12 @@
     return { queue, guessed };
   }
 
-  // All four accounts send up to 20 a day. No warm-up for Yahoo or the AWD Gmail: both are older accounts (Johnathon 2026-11-06).
+  // All four accounts send up to 30 a day (raised from 20 on 2026-11-24, Johnathon: "Raise to 30 a day"). No warm-up for Yahoo or the AWD Gmail: both are older accounts (Johnathon 2026-11-06).
   // AWD3 Gmail added 2026-11-09. All four raised from 15 to 20 a day on 2026-11-09 (Johnathon: "Raise to 20 a day").
-  const gmailCap = () => 20;
-  const yahooCap = () => 20;
-  const awdCap = () => 20;
-  const awd3Cap = () => 20;
+  const gmailCap = () => 30;
+  const yahooCap = () => 30;
+  const awdCap = () => 30;
+  const awd3Cap = () => 30;
   // Which account sent a row, from its resend_id prefix ("yahoo:", "awdgmail:", "awd3:"; anything else is Johnny's Gmail).
   const senderOf = (r) => { const id = r.resend_id || ""; return /^yahoo:/.test(id) ? "Yahoo" : /^awdgmail:/.test(id) ? "AWD Gmail" : /^awd3:/.test(id) ? "AWD3 Gmail" : "Gmail"; };
 
@@ -654,7 +654,7 @@
       <div class="page-head"><div><h2 class="h">${esc(c.name)}</h2><p class="muted small" style="margin:2px 0 0">Subject: ${esc(c.subject)}</p></div>
         <div class="page-tools"><a class="btn ghost" href="${B.base}/all">All campaigns</a></div></div>
       ${healthCards(sent)}
-      <p class="muted small tab-hint">Sent by Claude every weekday at 8:30 AM from Johnny's Gmail, the AWD Gmail, the AWD3 Gmail and Yahoo, 20 a day each (up to 400 a week). Every contact with an email gets exactly one email every week (7 days apart, never two in a week): version A if they have no website, version W if they do. Skipped: Disqualified, Won, Not Interested, open deals and booked meetings. Click any step to see its contacts.</p>
+      <p class="muted small tab-hint">Sent by Claude every weekday at 8:30 AM from Johnny's Gmail, the AWD Gmail, the AWD3 Gmail and Yahoo, 30 a day each (up to 600 a week). Every contact with an email gets exactly one email every week (7 days apart, never two in a week): version A if they have no website, version W if they do. Skipped: Disqualified, Won, Not Interested, open deals and booked meetings. Click any step to see its contacts.</p>
       <section class="stats">
         <div class="stat"><span>Total emails sent</span><b>${sent.length}</b><span>to ${people} contacts</span></div>
         <div class="stat"><span>Not emailed yet</span><b>${notYet.length}</b><span>${notYetA} no website · ${notYet.length - notYetA} with website</span></div>
