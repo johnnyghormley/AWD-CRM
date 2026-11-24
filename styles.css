@@ -727,3 +727,8 @@ details.fold > summary .sub-h { flex: 1; }
 .trow-dqform select, .trow-dqform input { flex: 1 1 160px; min-width: 0; }
 :root[data-theme="dark"] .trow-dq:hover { background: rgba(248,113,113,.18); border-color: #F87171; }
 :root[data-theme="dark"] .trow-dqform { background: rgba(248,113,113,.10); border-color: rgba(248,113,113,.5); }
+
+/* Google Calendar events on the CRM Calendar (2026-11-24) */
+.cal-ev.gg, .agenda-tag.gg { background: #DCFCE7; color: #14532D; }
+span.agenda-row { cursor: default; }
+:root[data-theme="dark"] .cal-ev.gg, :root[data-theme="dark"] .agenda-tag.gg { background: rgba(74,222,128,.16); color: #86EFAC; }

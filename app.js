@@ -91,6 +91,25 @@
   const isCallback = (m) => m.kind === CALLBACK;
   const fmtMeeting = (m) => new Date(m.starts_at).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
   const localDay = (iso) => new Date(iso).toLocaleDateString("en-CA");
+  // Google Calendar two-way sync (2026-11-24, api/gcal/*, gcal.sql). Meetings made in Google have kind "Google"
+  // (lead_id empty when the event doesn't name a lead; only admins see those). The server does the work; the page just
+  // asks it to run after meeting changes and when the Calendar opens. Runs one at a time; never blocks the CRM.
+  const GOOGLE = "Google";
+  const isAllDay = (m) => (m.duration_min || 0) >= 1440;
+  let gcalRun = null, gcalOff = false;
+  function gcalSync(force) {
+    if (gcalOff) return Promise.resolve(null);
+    if (gcalRun) return gcalRun;
+    gcalRun = (async () => {
+      const s = await session();
+      const r = await fetch("/api/gcal/sync", { method: "POST", headers: { Authorization: "Bearer " + (s ? s.access_token : ""), "Content-Type": "application/json" }, body: JSON.stringify({ force: !!force }) });
+      const j = await r.json().catch(() => null);
+      if (j && j.connected === false) gcalOff = true; // not connected: stop asking until the page reloads
+      return j;
+    })().catch(() => null).finally(() => setTimeout(() => (gcalRun = null), 0));
+    return gcalRun;
+  }
+  const withTimeout = (p, ms) => Promise.race([p, new Promise((r) => setTimeout(() => r(null), ms))]);
   // Google Calendar "add event" link, prefilled (opens in the browser; nothing is sent anywhere until you save it there).
   function gcalLink(m, l) {
     const z = (d) => d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
@@ -978,16 +997,19 @@
   // Follow-ups were taken off the calendar (2026-11-16, Johnathon); they have their own Follow-ups tab.
   let calMonth = null; // "YYYY-MM" being shown
   async function calendarView() {
+    const synced = await withTimeout(gcalSync(true), 6000); // fresh changes from Google first (gives up after 6 s)
     const { data: meets, error: mErr } = await sb.from("meetings").select("*, leads(business_name, owner_name)").neq("status", "canceled").order("starts_at", { ascending: true });
     const t = today();
     if (!calMonth) calMonth = t.slice(0, 7);
     // events by day: { day: "YYYY-MM-DD", type: "meet"|"fu", ... }
     const events = [];
     // Callbacks show in red (type "cb"), meetings in blue.
-    (meets || []).forEach((m) => events.push({ day: localDay(m.starts_at), type: isCallback(m) ? "cb" : "meet", lead: m.lead_id, name: (m.leads && m.leads.business_name) || "Lead",
-      time: new Date(m.starts_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }), kind: m.kind, done: m.status === "done",
-      sub: isCallback(m) ? ["Call back", m.location, m.note].filter(Boolean).join(" · ") : [m.kind, `${m.duration_min} min`, m.location, m.meeting_url && "Video link"].filter(Boolean).join(" · "), sort: m.starts_at,
-      join: !isCallback(m) && m.status === "scheduled" ? m.meeting_url : null }));
+    // Google Calendar events (kind "Google") are green; ones not linked to a lead show their title and don't link anywhere.
+    (meets || []).forEach((m) => { const gg = m.kind === GOOGLE; events.push({ day: localDay(m.starts_at), type: isCallback(m) ? "cb" : gg ? "gg" : "meet", lead: m.lead_id,
+      name: (m.leads && m.leads.business_name) || (gg ? m.note || "Google event" : "Lead"),
+      time: isAllDay(m) ? "All day" : new Date(m.starts_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }), kind: m.kind, done: m.status === "done",
+      sub: isCallback(m) ? ["Call back", m.location, m.note].filter(Boolean).join(" · ") : gg ? ["Google Calendar", m.lead_id && m.note, m.location].filter(Boolean).join(" · ") : [m.kind, `${m.duration_min} min`, m.location, m.meeting_url && "Video link"].filter(Boolean).join(" · "), sort: m.starts_at,
+      join: !isCallback(m) && m.status === "scheduled" ? m.meeting_url : null }); });
     events.sort((a, b) => a.day.localeCompare(b.day) || (a.type === b.type ? a.sort.localeCompare(b.sort) : a.type === "fu" ? 1 : -1));
     const byDay = {};
     events.forEach((e) => (byDay[e.day] = byDay[e.day] || []).push(e));
@@ -996,7 +1018,9 @@
     const first = new Date(y, mo - 1, 1), days = new Date(y, mo, 0).getDate();
     const ymd = (d) => `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
     const shift = (n) => { const d = new Date(y, mo - 1 + n, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
-    const chip = (e) => `<a class="cal-ev ${e.type}${e.late ? " late" : ""}${e.done ? " done" : ""}" href="#/lead/${e.lead}" title="${esc(e.name + (e.sub ? " · " + e.sub : ""))}">${e.type === "meet" ? `${MEETING_ICON[e.kind] || "📅"} ${esc(e.time)} ` : e.type === "cb" ? `☎️ ${esc(e.time)} ` : "↻ "}${esc(e.name)}</a>`;
+    const tagOpen = (cls, e, extra = "") => e.lead ? `<a class="${cls}" href="#/lead/${e.lead}"${extra}>` : `<span class="${cls}"${extra}>`;
+    const tagClose = (e) => e.lead ? "</a>" : "</span>";
+    const chip = (e) => `${tagOpen(`cal-ev ${e.type}${e.late ? " late" : ""}${e.done ? " done" : ""}`, e, ` title="${esc(e.name + (e.sub ? " · " + e.sub : ""))}"`)}${e.type === "meet" ? `${MEETING_ICON[e.kind] || "📅"} ${esc(e.time)} ` : e.type === "cb" ? `☎️ ${esc(e.time)} ` : e.type === "gg" ? `🗓️ ${esc(e.time)} ` : "↻ "}${esc(e.name)}${tagClose(e)}`;
     let cells = "";
     for (let i = 0; i < first.getDay(); i++) cells += `<div class="cal-day blank"></div>`;
     for (let d = 1; d <= days; d++) {
@@ -1005,8 +1029,8 @@
     }
     const lateFu = events.filter((e) => e.type === "fu" && e.late);
     const ahead = events.filter((e) => e.day >= t && !e.done).slice(0, 40);
-    const row = (e) => `<a class="agenda-row" href="#/lead/${e.lead}"><span class="agenda-tag ${e.type}">${e.type === "meet" ? "Meeting" : e.type === "cb" ? "Callback" : "Follow-up"}</span>
-      <span><b>${esc(e.name)}</b>${e.type !== "fu" ? ` · ${esc(e.time)}` : ""}<br><span class="muted small">${esc(e.sub || "")}</span></span></a>${e.join ? `<div class="agenda-join"><a class="btn small join-btn" href="${esc(e.join)}" target="_blank" rel="noopener">Join meeting</a><button type="button" class="btn ghost small" data-copy-link="${esc(e.join)}">Copy link</button></div>` : ""}`;
+    const row = (e) => `${tagOpen("agenda-row", e)}<span class="agenda-tag ${e.type}">${e.type === "meet" ? "Meeting" : e.type === "cb" ? "Callback" : e.type === "gg" ? "Google" : "Follow-up"}</span>
+      <span><b>${esc(e.name)}</b>${e.type !== "fu" ? ` · ${esc(e.time)}` : ""}<br><span class="muted small">${esc(e.sub || "")}</span></span>${tagClose(e)}${e.join ? `<div class="agenda-join"><a class="btn small join-btn" href="${esc(e.join)}" target="_blank" rel="noopener">Join meeting</a><button type="button" class="btn ghost small" data-copy-link="${esc(e.join)}">Copy link</button></div>` : ""}`;
     const groupRows = (list) => { let out = "", last = ""; list.forEach((e) => { if (e.day !== last) { last = e.day; out += `<div class="agenda-day">${e.day === t ? "Today · " : ""}${esc(fmtDate(e.day))}</div>`; } out += row(e); }); return out; };
 
     app.innerHTML = `
@@ -1015,7 +1039,8 @@
           <b>${first.toLocaleDateString("en-US", { month: "long", year: "numeric" })}</b>
           <button class="btn ghost small" id="cal-next" aria-label="Next month">›</button>
           <button class="btn ghost small" id="cal-today">Today</button></div></div>
-      <p class="muted small cal-key"><span class="cal-ev meet">📅 Meeting</span> <span class="cal-ev cb">☎️ Callback</span> · Book meetings and call backs from a lead's page. Follow-ups are on the Follow-ups tab.</p>
+      <p class="muted small cal-key"><span class="cal-ev meet">📅 Meeting</span> <span class="cal-ev cb">☎️ Callback</span> <span class="cal-ev gg">🗓️ Google Calendar</span> · Book meetings and call backs from a lead's page. Follow-ups are on the Follow-ups tab.
+        ${synced && synced.connected ? `Synced with Google Calendar${synced.ok ? "" : ` <span class="pill warn">Google sync problem: ${esc(synced.error || synced.errors?.[0] || "")}</span>`}.` : ""}</p>
       ${mErr ? `<p class="pill warn">Meetings aren't set up yet (run meetings.sql).</p>` : ""}
       <section class="card cal">
         ${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => `<div class="cal-dow">${d}</div>`).join("")}
@@ -1219,7 +1244,7 @@
     const [{ data: deals, error }, { data: leads }, { data: meets }, { data: reqs }, { data: designs }, { data: acts }] = await Promise.all([
       sb.from("deals").select("id,lead_id,stage,upfront,monthly"),
       sb.from("leads").select("id,business_name,call_status"),
-      sb.from("meetings").select("lead_id,status").in("status", ["scheduled", "done"]).neq("kind", CALLBACK),
+      sb.from("meetings").select("lead_id,status").in("status", ["scheduled", "done"]).neq("kind", CALLBACK).not("lead_id", "is", null),
       sb.from("design_requests").select("business,status"),
       sb.from("designs").select("business,status,pkg,upfront,monthly"),
       sb.from("activities").select("lead_id,kind,note").or('kind.eq."Design sent",note.like."Payment link*",note.like."Asked Dex*",note.like."Deal removed*"')
@@ -1393,7 +1418,7 @@
   async function tasksView() {
     const [{ data: leads, error }, { data: meets, error: mErr }] = await Promise.all([
       sb.from("leads").select("id,business_name,owner_name,owner_phone,business_phone,call_status,follow_up_date,next_step").not("follow_up_date", "is", null),
-      sb.from("meetings").select("*, leads(business_name, owner_name, owner_phone, business_phone)").eq("status", "scheduled").neq("kind", CALLBACK).order("starts_at", { ascending: true })
+      sb.from("meetings").select("*, leads(business_name, owner_name, owner_phone, business_phone)").eq("status", "scheduled").neq("kind", CALLBACK).not("lead_id", "is", null).order("starts_at", { ascending: true })
     ]);
     if (error) return fail(error);
     const t = today();
@@ -1440,6 +1465,7 @@
         } else {
           const { error: e1 } = await sb.from("meetings").update({ status: "done" }).eq("id", id);
           if (e1) { cb.checked = false; cb.disabled = false; return fail(e1); }
+          gcalSync();
           await sb.from("activities").insert({ lead_id: x.lead, kind: "Note", note: `Meeting held: ${fmtMeeting(x.m)}, ${x.m.kind}` });
         }
         tasks.splice(tasks.indexOf(x), 1);
@@ -1501,6 +1527,7 @@
   }
 
   async function leadView(id) {
+    gcalSync(); // sends any meeting change just made here to Google Calendar (in the background)
     const [{ data: l, error }, { data: acts }, { data: meets, error: mErr }] = await Promise.all([
       sb.from("leads").select("*").eq("id", id).single(),
       sb.from("activities").select("*").eq("lead_id", id).order("created_at", { ascending: false }),
@@ -1670,11 +1697,11 @@
           <div class="row-btns"><button class="btn">Book meeting</button><button type="button" class="btn ghost" id="meet-cancel">Cancel</button></div>
         </form>
         ${upcoming.length ? upcoming.map((m) => `<div class="meet ${m.starts_at < nowIso ? "late" : ""}">
-            <div><b>${MEETING_ICON[m.kind] || "📅"} ${esc(fmtMeeting(m))}</b> · ${esc(m.kind)} · ${m.duration_min} min${m.starts_at < nowIso ? ` <span class="pill warn">Past, not marked done</span>` : ""}
+            <div><b>${m.kind === GOOGLE ? "🗓️" : MEETING_ICON[m.kind] || "📅"} ${esc(isAllDay(m) ? new Date(m.starts_at).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }) + ", all day" : fmtMeeting(m))}</b> · ${m.kind === GOOGLE ? "From Google Calendar" : esc(m.kind)}${isAllDay(m) ? "" : ` · ${m.duration_min} min`}${m.starts_at < nowIso ? ` <span class="pill warn">Past, not marked done</span>` : ""}${m.google_error ? ` <span class="pill warn" title="${esc(m.google_error)}">Not in Google Calendar yet</span>` : ""}
               ${m.location ? `<div class="muted small">${/^https?:\/\//i.test(m.location) ? `<a href="${esc(m.location)}" target="_blank" rel="noopener">${esc(m.location)}</a>` : esc(m.location)}</div>` : ""}
               ${m.note ? `<div class="small">${esc(m.note)}</div>` : ""}
               ${meetLinkHtml(m)}</div>
-            <div class="meet-btns"><a class="btn ghost small" target="_blank" rel="noopener" href="${esc(gcalLink(m, l))}">+ Google Calendar</a>
+            <div class="meet-btns">${m.google_event_id ? `<span class="muted small" title="Synced with Google Calendar">🗓️ In Google</span>` : `<a class="btn ghost small" target="_blank" rel="noopener" href="${esc(gcalLink(m, l))}">+ Google Calendar</a>`}
               <button type="button" class="btn ghost small" data-meet-move="${m.id}">Move</button><button type="button" class="btn ghost small" data-meet-done="${m.id}">✓ Done</button><button type="button" class="btn ghost small" data-meet-cancel="${m.id}">Cancel</button></div>
             <form class="meet-move" data-move-form="${m.id}" hidden>
               <label>New date<input type="date" name="date" required value="${localDay(m.starts_at)}"></label>
@@ -1698,7 +1725,7 @@
         ${cbOpen.length ? cbOpen.map((m) => `<div class="meet cb ${m.starts_at < nowIso ? "late" : ""}">
             <div><b>☎️ ${esc(fmtMeeting(m))}</b>${m.starts_at < nowIso ? ` <span class="pill cb-late">Past, not marked done</span>` : ""}
               ${m.note ? `<div class="small">${esc(m.note)}</div>` : ""}</div>
-            <div class="meet-btns"><a class="btn ghost small" target="_blank" rel="noopener" href="${esc(gcalLink(m, l))}">+ Google Calendar</a>
+            <div class="meet-btns">${m.google_event_id ? `<span class="muted small" title="Synced with Google Calendar">🗓️ In Google</span>` : `<a class="btn ghost small" target="_blank" rel="noopener" href="${esc(gcalLink(m, l))}">+ Google Calendar</a>`}
               <button type="button" class="btn ghost small" data-cb-done="${m.id}">✓ Done</button><button type="button" class="btn ghost small" data-cb-cancel="${m.id}">Cancel</button></div>
           </div>`).join("") : `<p class="muted small">No call back scheduled.</p>`}
         ${cbPast.length ? `<p class="muted small" style="margin-top:8px">Earlier: ${cbPast.map((m) => `${esc(fmtMeeting(m))} (${m.status === "done" ? "done" : "canceled"})`).join(" · ")}</p>` : ""}
@@ -2078,6 +2105,34 @@ ${links()}`;
     };
   }
 
+  // ---------- Google Calendar card on the Team page (2026-11-24): connect Johnny's personal Gmail calendar ----------
+  async function gcalCard() {
+    const box = document.getElementById("gcal-card");
+    if (!box) return;
+    const s = await session();
+    const call = (path, body) => fetch("/api/gcal/" + path, { method: body ? "POST" : "GET", headers: { Authorization: "Bearer " + s.access_token, "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined }).then((r) => r.json());
+    const st = await call("status").catch((e) => ({ error: e.message }));
+    const q = new URLSearchParams(location.search);
+    if (q.get("gcal")) { toast(q.get("gcal") === "connected" ? "Google Calendar connected" : `Google Calendar: ${q.get("why") || "didn't connect"}`, q.get("gcal") !== "connected"); history.replaceState(null, "", location.pathname + location.hash); }
+    const intro = `<p class="muted small">Two-way sync with Johnny's Google Calendar (johnny.ghormley@gmail.com, main calendar). Meetings and call backs booked, moved, done or canceled here show up there, and events made or changed there show up on the CRM Calendar (attached to a lead when the title names the business or has its phone; the rest only admins see). Nobody is invited or emailed.</p>`;
+    if (!st.configured) {
+      box.innerHTML = `${intro}<p><span class="pill warn">Not set up yet</span> Missing in Vercel: <code>${esc((st.missing || []).join(", ") || st.error || "?")}</code>.</p>
+        <p class="muted small">Google OAuth client redirect URI: <code>${esc(st.redirect_uri || "https://awd-crm.vercel.app/api/gcal/callback")}</code>. Steps are in the vault note CRM App/Google Calendar Sync.</p>`;
+      return;
+    }
+    if (st.code === "no_table") { box.innerHTML = `${intro}<p><span class="pill warn">Run gcal.sql in Supabase first.</span></p>`; return; }
+    box.innerHTML = st.connected
+      ? `${intro}<p>✅ Connected as <b>${esc(st.account_email || "Google account")}</b> since ${fmtTime(st.connected_at)}.${st.last_sync_at ? ` Last sync ${fmtTime(st.last_sync_at)}.` : ""}</p>
+         ${st.last_error ? `<p><span class="pill warn">Last problem: ${esc(st.last_error)}</span></p>` : ""}${st.meetings_with_errors ? `<p><span class="pill warn">${st.meetings_with_errors} meeting(s) couldn't be sent to Google; they retry on every sync.</span></p>` : ""}
+         <div class="row-btns"><button class="btn small" id="gcal-sync">Sync now</button><button class="btn ghost small" id="gcal-connect">Reconnect</button><button class="btn ghost small" id="gcal-off">Disconnect</button></div>`
+      : `${intro}${st.error ? `<p><span class="pill warn">${esc(st.error)}</span></p>` : ""}<div class="row-btns"><button class="btn small" id="gcal-connect">Connect Google Calendar</button></div>
+         <p class="muted small">Sign in with johnny.ghormley@gmail.com and allow calendar access.</p>`;
+    const c = document.getElementById("gcal-connect"), off = document.getElementById("gcal-off"), now = document.getElementById("gcal-sync");
+    if (c) c.onclick = async () => { const j = await call("connect", {}); if (j.url) location.href = j.url; else toast(j.error || "Couldn't start the Google sign-in", true); };
+    if (off) off.onclick = async () => { if (!confirm("Stop syncing with Google Calendar? Events already there stay.")) return; const j = await call("connect", { disconnect: true }); toast(j.ok ? "Google Calendar disconnected" : j.error, !j.ok); gcalOff = true; gcalCard(); };
+    if (now) now.onclick = async () => { now.disabled = true; now.textContent = "Syncing…"; gcalOff = false; const j = await gcalSync(true); toast(j && j.ok ? `Synced: ${j.pushed} sent to Google, ${j.pulled} from Google` : `Sync problem: ${(j && (j.error || j.errors?.[0])) || "no answer"}`, !(j && j.ok)); gcalCard(); };
+  }
+
   // ---------- Team (admins only): who can sign in, and admin vs employee ----------
   async function teamView() {
     const { data: users, error } = await sb.from("crm_users").select("*").order("created_at");
@@ -2092,7 +2147,10 @@ ${links()}`;
         <div class="row-side"><select data-role="${u.user_id}" ${u.user_id === me ? "disabled" : ""}>
           <option value="employee" ${u.role === "employee" ? "selected" : ""}>Employee</option>
           <option value="admin" ${u.role === "admin" ? "selected" : ""}>Admin</option></select></div></div>`).join("") || `<p class="muted pad">No one yet.</p>`}
-      </div></div>`;
+      </div>
+      <h2 class="h" style="margin-top:20px">🗓️ Google Calendar</h2>
+      <div class="card pad" id="gcal-card"><p class="muted small">Checking…</p></div></div>`;
+    gcalCard();
     app.querySelectorAll("[data-role]").forEach((sel) => (sel.onchange = async () => {
       const { error: e } = await sb.from("crm_users").update({ role: sel.value }).eq("user_id", sel.dataset.role);
       if (e) return fail(e);

@@ -1,0 +1,3 @@
+{
+  "crons": [{ "path": "/api/gcal/sync", "schedule": "0 11 * * *" }]
+}
