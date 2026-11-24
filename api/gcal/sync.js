@@ -24,7 +24,9 @@ async function getAll(path) {
 const note = (lead_id, text) => lead_id ? g.sdb("activities", { method: "POST", body: { lead_id, kind: "Note", note: text }, prefer: "return=minimal" }).catch(() => {}) : null;
 const fmt = (iso) => new Date(iso).toLocaleString("en-US", { timeZone: g.TZ, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 // Every server write to a meeting sets google_synced_at, which tells the trigger it came from the sync (stays clean).
-const saveMeeting = (id, patch) => g.sdb(`meetings?id=eq.${id}`, { method: "PATCH", body: { google_dirty: false, google_synced_at: new Date().toISOString(), ...patch }, prefer: "return=minimal" });
+// The stamp gets random microseconds so two writes in the same millisecond still differ.
+const stamp = () => new Date().toISOString().replace("Z", String(Math.floor(Math.random() * 1000)).padStart(3, "0") + "Z");
+const saveMeeting = (id, patch) => g.sdb(`meetings?id=eq.${id}`, { method: "PATCH", body: { google_dirty: false, google_synced_at: stamp(), ...patch }, prefer: "return=minimal" });
 
 async function push(at, crmOrigin, out) {
   const rows = await g.sdb(`meetings?google_dirty=eq.true&select=*,leads(business_name,owner_name,owner_phone,business_phone)&order=starts_at.desc&limit=${PUSH_LIMIT}`);
@@ -64,7 +66,7 @@ async function push(at, crmOrigin, out) {
       out.pushed++;
     } catch (e) {
       out.errors.push(e.message);
-      await g.sdb(`meetings?id=eq.${m.id}`, { method: "PATCH", body: { google_synced_at: new Date().toISOString(), google_error: e.message.slice(0, 300) }, prefer: "return=minimal" }).catch(() => {});
+      await g.sdb(`meetings?id=eq.${m.id}`, { method: "PATCH", body: { google_synced_at: stamp(), google_error: e.message.slice(0, 300) }, prefer: "return=minimal" }).catch(() => {});
     }
   }
 }
@@ -133,7 +135,7 @@ async function pull(at, conn, out) {
         if (!m) {
           const lead_id = await findLead(ev);
           const ins = await g.sdb("meetings?on_conflict=google_event_id", { method: "POST", prefer: "resolution=ignore-duplicates,return=representation",
-            body: { ...fields, lead_id, kind: "Google", status: "scheduled", google_event_id: ev.id, google_dirty: false, google_synced_at: new Date().toISOString() } });
+            body: { ...fields, lead_id, kind: "Google", status: "scheduled", google_event_id: ev.id, google_dirty: false, google_synced_at: stamp() } });
           if (ins && ins.length) { await note(lead_id, `Meeting added from Google Calendar: ${fmt(t.starts_at)}, “${fields.note}”`); out.pulled++; }
         } else if (!m.google_dirty && (!sameTimeOk(m, t) || m.note !== fields.note || (m.location || null) !== fields.location || m.status === "canceled")) {
           await saveMeeting(m.id, { ...fields, status: m.status === "canceled" ? "scheduled" : m.status }); out.pulled++;
