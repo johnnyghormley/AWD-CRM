@@ -50,13 +50,25 @@
       </ul></section>`;
   }
 
+  // Supabase returns at most 1,000 rows per request, so load campaign_sends page by page (2026-11-27: the weekly email passed
+  // 1,000 sends and "Today's sends" showed 0 because the newest rows were cut off). make() must return a fresh, ordered query.
+  async function allPages(make) {
+    let out = [];
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await make().range(from, from + 999);
+      if (error) return { data: out.length ? out : null, error };
+      out = out.concat(data || []);
+      if (!data || data.length < 1000) return { data: out, error: null };
+    }
+  }
+
   // ---------- list of campaigns ----------
   async function listView() {
     const { sb, app, esc } = ctx;
     app.innerHTML = `<p class="muted pad">Loading…</p>`;
     let [{ data: camps, error }, { data: sends }, { data: unsubs }] = await Promise.all([
       sb.from("campaigns").select("*").eq("brand", brand).order("created_at", { ascending: false }),
-      sb.from("campaign_sends").select("campaign_id,status,sent_at,opened_at,clicked_at,replied_at,bounced_at,unsubscribed_at"),
+      allPages(() => sb.from("campaign_sends").select("campaign_id,status,sent_at,opened_at,clicked_at,replied_at,bounced_at,unsubscribed_at").order("id", { ascending: true })),
       sb.from("email_unsubscribes").select("*").order("created_at", { ascending: false }),
       loadConfig()
     ]);
@@ -410,7 +422,7 @@
     app.innerHTML = `<p class="muted pad">Loading…</p>`;
     const [{ data: c, error }, { data: rows }] = await Promise.all([
       sb.from("campaigns").select("*").eq("id", id).single(),
-      sb.from("campaign_sends").select("*").eq("campaign_id", id).order("created_at", { ascending: true }), loadConfig()]);
+      allPages(() => sb.from("campaign_sends").select("*").eq("campaign_id", id).order("created_at", { ascending: true }).order("id", { ascending: true })), loadConfig()]);
     if (error || !c) return ctx.fail(error || new Error("Campaign not found"));
     // Gmail campaigns (2026-11-03): sent by Claude through Composio from Johnny's Gmail, a batch a day. This page only shows who got it and who's next.
     if (c.audience && c.audience.channel === "gmail") return gmailView(c, rows);
